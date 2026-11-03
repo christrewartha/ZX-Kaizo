@@ -9,6 +9,7 @@
 #include "render.h"
 #include "room.h"
 #include "hud.h"
+#include "title.h"
 
 // Keep the stack in uncontended RAM, clear of the IM2 table at $FE00
 #pragma output REGISTER_SP = 0xFDFC
@@ -223,7 +224,7 @@ static void game_tick(unsigned char held, unsigned char pressed) {
 
 int main(void) {
     unsigned char held;
-    unsigned char prev = 0;
+    unsigned char prev;
     unsigned char pressed;
     unsigned char ticks;
 
@@ -231,6 +232,7 @@ int main(void) {
     zx_border(INK_BLACK);
     render_init();
     input_init();
+    title_screen();
 
     respawn_room = room_start;
     respawn_x = room_start_x;
@@ -239,6 +241,8 @@ int main(void) {
     respawn();
     safe_timer = 0;
     sync_sprites();
+    // The jump that started the game shouldn't also make the player jump
+    prev = input_read();
 
     for (;;) {
         // Sync to the frame interrupt, which fires at the start of the top

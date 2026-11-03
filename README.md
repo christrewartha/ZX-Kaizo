@@ -1,12 +1,14 @@
-# ZX-Kaizo
+# KaiZXo
 
-![ZX-Kaizo cover](docs/cover.png)
+![KaiZXo start screen](docs/cover.png)
 
 A tough, precise platformer for the 48K ZX Spectrum, written in C and Z80
 assembly with z88dk. Climb, fall and wall-jump through 15 rooms of a
 haunted castle, from the Belfry down to the Crypt, past spikes, beetles and
 bats. Lives are unlimited. When you die you go straight back to the last
 place you stood safely.
+
+At the start screen, press any jump key to begin.
 
 ## Controls
 
@@ -52,8 +54,8 @@ Fuse** is the default test task. From a shell:
 ```sh
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_data.ps1
 zcc +zx -vn -compiler=sdcc -SO3 -m -Isrc -Ibuild/gen \
-    src/main.c src/player.c src/enemy.c src/room.c src/hud.c src/render.c src/sprites.c \
-    build/gen/rooms_data.c build/gen/sprite_art.c \
+    src/main.c src/player.c src/enemy.c src/room.c src/hud.c src/render.c src/sprites.c src/title.c \
+    build/gen/rooms_data.c build/gen/sprite_art.c build/gen/title_scr.c \
     src/render.asm src/input.asm src/interrupts.asm \
     -o build/game -create-app
 fuse --machine 48 --auto-load --tape build/game.tap
@@ -85,20 +87,25 @@ that don't line up with the room next door. The comments at the top of
 
 ```
 src/         game code: C, plus Z80 assembly for input, interrupts and drawing
-data/        world map and sprite art
-tools/       data converter and cover-image generator
+data/        world map, sprite art and start screen
+tools/       data converter and start-screen generator
 docs/        README cover image
 ```
 
 To show CPU use as coloured bars in the border, set `DEBUG_TIMING` to 1 in
 `src/main.c`.
 
-## The cover image
+## The start screen
 
-[docs/cover.png](docs/cover.png) is a real Spectrum screen, with
-one ink and one paper colour per 8x8 cell. It's built from the game's own
-tiles and sprites and the ROM font by `tools/make_cover.ps1`. The script also
-writes `docs/cover.scr`, which you can load into an emulator:
+The start screen, [data/title.scr](data/title.scr), is a real Spectrum screen
+with one ink and one paper colour per 8x8 cell. `tools/make_cover.ps1` draws
+it from the game's own tiles and sprites and the ROM font. The script also
+saves the same screen as [docs/cover.png](docs/cover.png) for this README.
+The build compresses the screen with zx0, to under 1KB, and the game unpacks
+it straight into screen memory. The game prints the blinking "PRESS SPACE TO
+START" prompt itself.
+
+Run the script again after changing it, or the tiles or sprites:
 
 ```sh
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/make_cover.ps1
