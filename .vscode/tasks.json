@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Spectrum TAP",
+      "type": "shell",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_data.ps1; if ($LASTEXITCODE) { exit 1 }; zcc +zx -vn -compiler=sdcc -SO3 -m -Isrc -Ibuild/gen src/main.c src/player.c src/enemy.c src/room.c src/hud.c src/render.c src/sprites.c build/gen/rooms_data.c build/gen/sprite_art.c src/render.asm src/input.asm src/interrupts.asm -o build/game -create-app",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Run in Fuse",
+      "type": "shell",
+      "command": "fuse --machine 48 --auto-load --fastload --traps --no-confirm-actions --tape build/game.tap",
+      "dependsOn": ["Build Spectrum TAP"],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Clean Build",
+      "type": "shell",
+      "command": "Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue",
+      "group": "none",
+      "problemMatcher": []
+    }
+  ]
+}
