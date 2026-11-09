@@ -1,0 +1,50 @@
+; The soundtrack: three voices, written as a step grid like a tracker.
+;
+;   tick <frames>                    frames per step (50 frames a second)
+;   instrument <A|B|C> <volume> <floor> <fade>
+;                                    a note starts at volume (0-15) and
+;                                    drops by one every <fade> frames until
+;                                    it reaches floor
+;   A: <steps...>                    steps for a voice; lines add up
+;
+; A step is a note (C1 to B7, with # or b, e.g. F#3 Bb4), '-' to hold the
+; previous note, or '.' for silence. '|' is ignored: use it for bar lines.
+; All three voices must be the same length; the song loops forever.
+;
+; The AY on 128K machines (or a 48K AY interface) plays it. A plain 48K is
+; silent.
+
+tick 9                          ; a 16th note: 83 beats per minute
+
+instrument A 12 7 6             ; bass: soft, held
+instrument B 10 3 3             ; electric piano: plucked, fades quickly
+instrument C 11 5 5             ; vibes: rings for a while
+
+; Dm9 | Dm9 | Bbmaj9 | Bbmaj9 | Gm9 | Gm9 | A7sus4 | A7b9, twice over
+
+A: D2  - - - - - - - - - . A2  - - . . | D2  - - - - - - - . . . C3  - A2 - . |
+A: Bb1 - - - - - - - - - . F2  - - . . | Bb1 - - - - - - - . . . A2  - F2 - . |
+A: G1  - - - - - - - - - . D2  - - . . | G1  - - - - - - - . . . F2  - D2 - . |
+A: A1  - - - - - - - - - . E2  - - . . | A1  - - - - - - - . . . C#2 - E2 - . |
+A: D2  - - - - - - - - - . A2  - - . . | D2  - - - - - - - . . . C3  - A2 - . |
+A: Bb1 - - - - - - - - - . F2  - - . . | Bb1 - - - - - - - . . . A2  - F2 - . |
+A: G1  - - - - - - - - - . D2  - - . . | G1  - - - - - - - . . . F2  - D2 - . |
+A: A1  - - - - - - - - - . E2  - - . . | A1  - - - - - - - . . . C#2 - E2 - . |
+
+B: F4  - - A4 - - E5 - - - C5  - - A4 - - | F4  - - A4 - - C5 - - - E5  - - D5  - - |
+B: D4  - - F4 - - C5 - - - A4  - - F4 - - | D4  - - F4 - - A4 - - - C5  - - D5  - - |
+B: Bb3 - - D4 - - A4 - - - F4  - - D4 - - | Bb3 - - D4 - - F4 - - - A4  - - Bb4 - - |
+B: D4  - - E4 - - G4 - - - A4  - - E4 - - | C#4 - - E4 - - G4 - - - Bb4 - - G4  - - |
+B: F4  - - A4 - - E5 - - - C5  - - A4 - - | F4  - - A4 - - C5 - - - E5  - - D5  - - |
+B: D4  - - F4 - - C5 - - - A4  - - F4 - - | D4  - - F4 - - A4 - - - C5  - - D5  - - |
+B: Bb3 - - D4 - - A4 - - - F4  - - D4 - - | Bb3 - - D4 - - F4 - - - A4  - - Bb4 - - |
+B: D4  - - E4 - - G4 - - - A4  - - E4 - - | C#4 - - E4 - - G4 - - - Bb4 - - G4  - - |
+
+C: .  . . . . . . . A5   - - - - - G5  - | F5 - - - - - - - - - - - . . . . |
+C: .  . . . . . . . D5   - - - F5  - - - | E5 - - - - - - - - - - - . . . . |
+C: .  . . . . . . . D5   - - - - - Bb4 - | A4 - - - - - - - C5 - - - D5 - - - |
+C: E5 - - - - - - - - - - - . . . . | . . . . C#5 - - - - - - - E5 - - - |
+C: D5 - - - - - - - . . . . A5 - - - | C6 - - - - - - - A5 - - - G5 - - - |
+C: F5 - - - - - - - . . . . E5 - D5 - | C5 - - - - - - - - - - - . . . . |
+C: .  . . . . . . . Bb5  - - - A5  - - - | G5 - - - - - - - F5 - - - - - - - |
+C: E5 - - - - - - - . . G5 - - - - - | - - - - - - - - . . . . . . . . |

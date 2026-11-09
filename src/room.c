@@ -9,7 +9,8 @@
 #define T_PLATFORM   3          // '='
 #define T_SPIKE_UP   4          // '^'
 #define T_SPIKE_DOWN 5          // 'v'
-#define T_COUNT      6
+#define T_EXIT       6          // 'E'
+#define T_COUNT      7
 
 // Tile graphics (8 bytes, top line first)
 static const unsigned char tile_gfx[T_COUNT][8] = {
@@ -19,13 +20,15 @@ static const unsigned char tile_gfx[T_COUNT][8] = {
     { 0xFF, 0xAA, 0x55, 0xFF, 0x00, 0x00, 0x00, 0x00 },
     { 0x00, 0x00, 0x00, 0x22, 0x22, 0x77, 0x77, 0xFF },
     { 0xFF, 0x77, 0x77, 0x22, 0x22, 0x00, 0x00, 0x00 },
+    { 0x18, 0x24, 0x42, 0x81, 0x81, 0x42, 0x24, 0x18 },
 };
 
 // Black paper everywhere so the player (no attribute of its own) takes the
 // cell's ink: bright white in open space, never clashing with solid tiles.
-static const unsigned char tile_attr[T_COUNT] = { 0x47, 0x42, 0x45, 0x46, 0x47, 0x47 };
+// The exit is a lattice that flashes yellow.
+static const unsigned char tile_attr[T_COUNT] = { 0x47, 0x42, 0x45, 0x46, 0x47, 0x47, 0xC6 };
 static const unsigned char tile_coll[T_COUNT] = {
-    0, TILE_SOLID, TILE_SOLID, TILE_PLATFORM, TILE_HAZARD, TILE_HAZARD
+    0, TILE_SOLID, TILE_SOLID, TILE_PLATFORM, TILE_HAZARD, TILE_HAZARD, TILE_EXIT
 };
 
 

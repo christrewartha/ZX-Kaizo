@@ -8,6 +8,8 @@
 #define ATTR_NAME_BAR 0x4E      // bright yellow on blue
 #define ATTR_STATUS   0x47      // bright white on black
 
+#define DEATHS_COL    21        // "DEATHS 0000" ends in the last column
+
 void print_at(unsigned char col, unsigned char row, const char *text) {
     unsigned char *scr = (unsigned char *)(screen_row[row << 3] + col);
     const unsigned char *glyph;
@@ -24,9 +26,32 @@ void print_at(unsigned char col, unsigned char row, const char *text) {
     }
 }
 
-void hud_room(const char *name) {
+char *format_number(char *out, unsigned int n, unsigned char digits) {
+    out[digits] = 0;
+    while (digits) {
+        out[--digits] = '0' + n % 10;
+        n /= 10;
+    }
+    return out;
+}
+
+void hud_room(const char *name, unsigned char level, unsigned char count) {
+    char num[3];
+
     memset(SCREEN_ATTR + HUD_ROW * 32, ATTR_NAME_BAR, 32);
     memset(SCREEN_ATTR + (HUD_ROW + 1) * 32, ATTR_STATUS, 32);
     // room_load() has already cleared the bitmap
     print_at((32 - strlen(name)) >> 1, HUD_ROW, name);
+    print_at(0, HUD_ROW + 1, "LEVEL");
+    print_at(6, HUD_ROW + 1, format_number(num, level, 2));
+    print_at(8, HUD_ROW + 1, "/");
+    print_at(9, HUD_ROW + 1, format_number(num, count, 2));
+    print_at(DEATHS_COL, HUD_ROW + 1, "DEATHS");
+}
+
+void hud_deaths(unsigned int deaths) {
+    char num[5];
+
+    if (deaths > 9999) deaths = 9999;
+    print_at(DEATHS_COL + 7, HUD_ROW + 1, format_number(num, deaths, 4));
 }

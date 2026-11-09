@@ -74,10 +74,11 @@ static unsigned char row_flags(unsigned char y, unsigned char left) {
     return f;
 }
 
-// Spike art fills only part of its cell, so the bottom of the hurt box is
-// pulled in by 3 pixels: you die touching the points, not the empty space
-// above them. The box is then 8x10, so it touches at most 2x2 cells.
-static unsigned char touching_hazard(void) {
+// Flags of the cells under the hurt box: hazards and the exit. Spike art
+// fills only part of its cell, so the bottom of the box is pulled in by 3
+// pixels: you die touching the points, not the empty space above them. The
+// box is then 8x10, so it touches at most 2x2 cells.
+static unsigned char touch_flags(void) {
     unsigned char left = (FIX_WHOLE(player.x) + PLAYER_HURT_LEFT) >> 3;
     unsigned char right = (FIX_WHOLE(player.x) + PLAYER_HURT_RIGHT) >> 3;
     unsigned char top = FIX_WHOLE(player.y) + PLAYER_HURT_TOP;
@@ -85,7 +86,7 @@ static unsigned char touching_hazard(void) {
     unsigned char *p = &room_coll[(unsigned int)(top & 0xF8) << 2];
     unsigned char *q = &room_coll[(unsigned int)(bottom & 0xF8) << 2];
 
-    return (p[left] | p[right] | q[left] | q[right]) & TILE_HAZARD;
+    return p[left] | p[right] | q[left] | q[right];
 }
 
 static void update_horizontal(unsigned char held) {
@@ -190,18 +191,20 @@ static void update_vertical(unsigned char held, unsigned char pressed) {
     player.vy = vy;
 }
 
-static unsigned char move_horizontal(void) {
+static void move_horizontal(void) {
     ufix8 nx = player.x + player.vx;
     unsigned char px, py, edge;
 
-    // Leaving the screen: the unsigned position wraps when going left
+    // The screen edges are walls. The unsigned position wraps going left.
     if (player.vx < 0 && nx > player.x) {
         player.x = 0;
-        return EV_EXIT_LEFT;
+        player.vx = 0;
+        return;
     }
     if (FIX_WHOLE(nx) > SPR_MAX_X) {
         player.x = FIX_FROM_INT(SPR_MAX_X);
-        return EV_EXIT_RIGHT;
+        player.vx = 0;
+        return;
     }
 
     px = FIX_WHOLE(nx);
@@ -221,7 +224,6 @@ static unsigned char move_horizontal(void) {
         }
     }
     player.x = nx;
-    return EV_NONE;
 }
 
 static unsigned char move_vertical(unsigned char held) {
@@ -230,16 +232,18 @@ static unsigned char move_vertical(unsigned char held) {
     unsigned char py, foot, flags;
     unsigned char left = FIX_WHOLE(player.x) + PLAYER_HB_X;
 
-    // Off the top (the unsigned position wraps) or out of the bottom: the
-    // caller moves us to the next room, or stops us at the edge
+    // The top of the screen is an invisible ceiling (the unsigned position
+    // wraps going up). Out of the bottom is a bottomless pit.
     if (player.vy < 0 && ny > player.y) {
-        player.y = ny;
-        return EV_EXIT_UP;
+        player.y = 0;
+        player.vy = 0;
+        player.jumping = 0;
+        return EV_NONE;
     }
     py = FIX_WHOLE(ny);
     if (py > ROOM_BOTTOM_Y) {
         player.y = ny;
-        return EV_EXIT_DOWN;
+        return EV_FELL;
     }
 
     player.on_ground = 0;
@@ -316,15 +320,13 @@ static void update_animation(void) {
 }
 
 unsigned char player_update(unsigned char held, unsigned char pressed) {
-    unsigned char ev;
+    unsigned char touch;
 
     update_horizontal(held);
     update_vertical(held, pressed);
 
-    ev = move_horizontal();
-    if (ev) return ev;
-    ev = move_vertical(held);
-    if (ev) return ev;
+    move_horizontal();
+    if (move_vertical(held)) return EV_FELL;
 
     if (player.on_ground) {
         player.coyote = COYOTE_FRAMES;
@@ -335,7 +337,9 @@ unsigned char player_update(unsigned char held, unsigned char pressed) {
 
     update_animation();
 
-    if (touching_hazard()) return EV_DIED;
+    touch = touch_flags();
+    if (touch & TILE_HAZARD) return EV_DIED;
+    if (touch & TILE_EXIT) return EV_DONE;
     return EV_NONE;
 }
 

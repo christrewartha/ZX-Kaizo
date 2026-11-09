@@ -1,6 +1,7 @@
 # Converts the text sources in data/ into compact C data in build/gen/:
 #   data/world.txt   -> rooms_data.c   (run-length encoded maps, room table)
 #   data/sprites.txt -> sprite_art.c/h (16-bit rows, ART_* indices)
+#   data/music.txt   -> music_data.c   (note streams, AY pitches)
 #   data/title.scr   -> title_scr.c    (start screen, zx0 compressed)
 # Errors and warnings are reported as file:line: so VS Code's problem
 # matcher picks them up.
@@ -25,143 +26,9 @@ function Write-Gen($name, $text) {
 
 # ---------------------------------------------------------------- rooms
 
-$roomCols = 32
-$roomRows = 22                  # must match ROOM_ROWS in src/room.h
-$maxY = $roomRows * 8 - 16      # lowest sprite y inside a room
-
-# Must match the T_* tile ids in src/room.c
-$tileIds = @{ [char]' ' = 0; [char]'#' = 1; [char]'X' = 2; [char]'=' = 3; [char]'^' = 4; [char]'v' = 5 }
-$solidTiles = @(1, 2)
-$colours = @{ blue = 0x41; red = 0x42; magenta = 0x43; green = 0x44; cyan = 0x45; yellow = 0x46; white = 0x47 }
-$enemyTypes = @{ walker = 'ENEMY_WALKER'; flyer = 'ENEMY_FLYER' }
-$maxEnemies = 4
-
 $file = 'data/world.txt'
-$lines = [IO.File]::ReadAllLines((Join-Path $root $file))
-
-# --- room declarations
-
-$rooms = New-Object Collections.Generic.List[object]
-$bySlot = @{}
-$mapStart = -1
-for ($i = 0; $i -lt $lines.Count; $i++) {
-    $line = $lines[$i].Trim()
-    if ($line -eq '' -or $line.StartsWith(';')) { continue }
-    if ($line -eq 'map:') { $mapStart = $i + 1; break }
-    $lineNo = $i + 1
-    if ($line -match '^room\s+(\d+)\s+(\d+)\s+(.+)$') {
-        $gx = [int]$Matches[1]; $gy = [int]$Matches[2]; $name = $Matches[3].Trim()
-        if ($bySlot.ContainsKey("$gx,$gy")) { Fail $file $lineNo "two rooms at $gx,$gy" }
-        if ($name.Length -gt 32) { Fail $file $lineNo 'room name longer than 32 characters' }
-        $room = @{ X = $gx; Y = $gy; Name = $name; Line = $lineNo; Index = $rooms.Count
-                   Enemies = New-Object Collections.Generic.List[string] }
-        $rooms.Add($room)
-        $bySlot["$gx,$gy"] = $room
-    } elseif ($line -match '^enemy\s+(.*)$') {
-        if ($rooms.Count -eq 0) { Fail $file $lineNo 'enemy before any room' }
-        $room = $rooms[$rooms.Count - 1]
-        $f = $Matches[1] -split '\s+'
-        if ($f.Count -ne 7) { Fail $file $lineNo 'enemy <type> <x> <y> <min> <max> <speed> <colour>' }
-        if (-not $enemyTypes.ContainsKey($f[0])) { Fail $file $lineNo "unknown enemy type '$($f[0])'" }
-        if (-not $colours.ContainsKey($f[6])) { Fail $file $lineNo "unknown colour '$($f[6])'" }
-        $x = [int]$f[1]; $y = [int]$f[2]; $min = [int]$f[3]; $max = [int]$f[4]
-        $speed = [int][Math]::Round([double]::Parse($f[5], [Globalization.CultureInfo]::InvariantCulture) * 256)
-        $limit = if ($f[0] -eq 'walker') { 239 } else { $maxY }
-        if ($x -gt 239 -or $y -gt $maxY) { Fail $file $lineNo "enemy position outside the room (x <= 239, y <= $maxY)" }
-        if ($min -lt 1 -or $max -gt $limit -or $min -gt $max) { Fail $file $lineNo "patrol limits must satisfy 1 <= min <= max <= $limit" }
-        if ($speed -eq 0) { Fail $file $lineNo 'enemy speed is zero' }
-        if ($room.Enemies.Count -eq $maxEnemies) { Fail $file $lineNo "more than $maxEnemies enemies in one room" }
-        $room.Enemies.Add("    { $($enemyTypes[$f[0]]), $x, $y, $min, $max, $speed, 0x$('{0:X2}' -f $colours[$f[6]]) },")
-    } else {
-        Fail $file $lineNo "expected 'room', 'enemy' or 'map:'"
-    }
-}
-if ($mapStart -lt 0) { Fail $file $lines.Count "missing 'map:'" }
-if ($rooms.Count -eq 0) { Fail $file $mapStart 'no rooms declared' }
-if ($rooms.Count -gt 254) { Fail $file $mapStart 'too many rooms' }
-
-$gridW = ($rooms | ForEach-Object { $_.X } | Measure-Object -Maximum).Maximum + 1
-$gridH = ($rooms | ForEach-Object { $_.Y } | Measure-Object -Maximum).Maximum + 1
-$needLines = $gridH * $roomRows + ($gridH - 1)
-if ($lines.Count - $mapStart -lt $needLines) {
-    Fail $file $lines.Count "map needs $needLines lines for a ${gridW}x${gridH} grid"
-}
-
-# --- slice the grid into rooms
-
-foreach ($room in $rooms) { $room.Cells = New-Object int[] ($roomCols * $roomRows); $room.Rows = New-Object int[] $roomRows }
-$start = $null
-
-for ($gy = 0; $gy -lt $gridH; $gy++) {
-    $base = $mapStart + $gy * ($roomRows + 1)
-    if ($gy -gt 0 -and -not $lines[$base - 1].StartsWith('-')) {
-        Fail $file $base "expected a '-' separator line between grid rows"
-    }
-    for ($r = 0; $r -lt $roomRows; $r++) {
-        $lineNo = $base + $r + 1
-        $slots = $lines[$base + $r] -split '\|'
-        if ($slots.Count -gt $gridW) { Fail $file $lineNo "more than $gridW rooms across" }
-        for ($gx = 0; $gx -lt $gridW; $gx++) {
-            $text = if ($gx -lt $slots.Count) { $slots[$gx] } else { '' }
-            if ($text.Length -gt $roomCols) { Fail $file $lineNo "room $gx,$gy row is $($text.Length) cells wide, max $roomCols" }
-            $text = $text.PadRight($roomCols)
-            $room = $bySlot["$gx,$gy"]
-            if (-not $room) {
-                if ($text.Trim(' ~') -ne '') { Warn $file $lineNo "content in empty grid slot $gx,$gy (no 'room $gx $gy' declared)" }
-                continue
-            }
-            $room.Rows[$r] = $lineNo
-            for ($c = 0; $c -lt $roomCols; $c++) {
-                $ch = $text[$c]
-                if ($ch -eq [char]'S') {
-                    if ($start) { Fail $file $lineNo 'more than one S' }
-                    if ($r -eq 0) { Fail $file $lineNo 'S must be below the top row' }
-                    $start = @($room.Index, ($c * 8), ($r * 8 - 8))
-                    $ch = [char]' '
-                }
-                if (-not $tileIds.ContainsKey($ch)) { Fail $file $lineNo "unknown tile '$ch' in room $gx,$gy column $c" }
-                $room.Cells[$r * $roomCols + $c] = $tileIds[$ch]
-            }
-        }
-    }
-}
-if (-not $start) { Fail $file $mapStart "no S (player start) in the map" }
-
-# --- exits and edge checks
-
-function Open($room, $row, $col) { return $solidTiles -notcontains $room.Cells[$row * $roomCols + $col] }
-
-foreach ($room in $rooms) {
-    $room.Left = $bySlot["$($room.X - 1),$($room.Y)"]
-    $room.Right = $bySlot["$($room.X + 1),$($room.Y)"]
-    $room.Up = $bySlot["$($room.X),$($room.Y - 1)"]
-    $room.Down = $bySlot["$($room.X),$($room.Y + 1)"]
-
-    # Sideways: doorways must meet doorways
-    for ($r = 0; $r -lt $roomRows; $r++) {
-        $here = Open $room $r ($roomCols - 1)
-        if ($room.Right) {
-            if ($here -ne (Open $room.Right $r 0)) {
-                Warn $file $room.Rows[$r] "$($room.Name) | $($room.Right.Name): right edge row $r is open on one side only"
-            }
-        } elseif ($here) {
-            Warn $file $room.Rows[$r] "$($room.Name): right edge row $r is open but there is no room beyond"
-        }
-        if (-not $room.Left -and (Open $room $r 0)) {
-            Warn $file $room.Rows[$r] "$($room.Name): left edge row $r is open but there is no room beyond"
-        }
-    }
-    # Vertically: holes in a floor must meet holes in the ceiling below
-    if ($room.Down) {
-        for ($c = 0; $c -lt $roomCols; $c++) {
-            if ((Open $room ($roomRows - 1) $c) -ne (Open $room.Down 0 $c)) {
-                Warn $file $room.Rows[$roomRows - 1] "$($room.Name) / $($room.Down.Name): column $c is open on one side only"
-            }
-        }
-    }
-}
-
-# --- emit
+. (Join-Path $PSScriptRoot 'world.ps1')
+$levels = Read-World $root $file
 
 $c = New-Object Text.StringBuilder
 [void]$c.AppendLine('// Generated by tools/build_data.ps1 from data/world.txt - do not edit')
@@ -170,12 +37,10 @@ $c = New-Object Text.StringBuilder
 $table = New-Object Collections.Generic.List[string]
 $totalPacked = 0
 
-function Ref($room) { if ($room) { return $room.Index } else { return 'NO_ROOM' } }
-
-foreach ($room in $rooms) {
+foreach ($level in $levels) {
     # Each byte is (tile << 5) | (run - 1): runs of 1..32 identical cells
     $packed = New-Object Collections.Generic.List[string]
-    $cells = $room.Cells
+    $cells = $level.Cells
     $i = 0
     while ($i -lt $cells.Count) {
         $t = $cells[$i]; $run = 1
@@ -185,36 +50,34 @@ foreach ($room in $rooms) {
     }
     $totalPacked += $packed.Count
 
-    $id = "room$($room.Index)"
-    $escaped = $room.Name.Replace('\', '\\').Replace('"', '\"')
-    [void]$c.AppendLine("// $($room.X),$($room.Y) $($room.Name) ($($packed.Count) bytes)")
+    $id = "room$($level.Index)"
+    $escaped = $level.Name.Replace('\', '\').Replace('"', '\"')
+    [void]$c.AppendLine("// $($level.Index + 1): $($level.Name) ($($packed.Count) bytes)")
     [void]$c.AppendLine("static const unsigned char ${id}_map[] = {")
     for ($i = 0; $i -lt $packed.Count; $i += 16) {
         $n = [Math]::Min(16, $packed.Count - $i)
         [void]$c.AppendLine('    ' + (($packed.GetRange($i, $n)) -join ', ') + ',')
     }
     [void]$c.AppendLine('};')
-    if ($room.Enemies.Count -gt 0) {
+    if ($level.Enemies.Count -gt 0) {
         [void]$c.AppendLine("static const enemy_def ${id}_enemies[] = {")
-        foreach ($e in $room.Enemies) { [void]$c.AppendLine($e) }
+        foreach ($e in $level.Enemies) { [void]$c.AppendLine($e) }
         [void]$c.AppendLine('};')
         $enemyRef = "${id}_enemies"
     } else {
         $enemyRef = '0'
     }
     [void]$c.AppendLine()
-    $table.Add("    { ${id}_map, $(Ref $room.Left), $(Ref $room.Right), $(Ref $room.Up), $(Ref $room.Down), `"$escaped`", $enemyRef, $($room.Enemies.Count) },")
+    $table.Add("    { ${id}_map, $($level.Start[0]), $($level.Start[1]), `"$escaped`", $enemyRef, $($level.Enemies.Count) },")
 }
 
 [void]$c.AppendLine('const room_t rooms[] = {')
 foreach ($t in $table) { [void]$c.AppendLine($t) }
 [void]$c.AppendLine('};')
 [void]$c.AppendLine()
-[void]$c.AppendLine("const unsigned char room_start = $($start[0]);")
-[void]$c.AppendLine("const unsigned char room_start_x = $($start[1]);")
-[void]$c.AppendLine("const unsigned char room_start_y = $($start[2]);")
+[void]$c.AppendLine("const unsigned char room_count = $($levels.Count);")
 Write-Gen 'rooms_data.c' $c.ToString()
-$roomSummary = "$($rooms.Count) rooms ($totalPacked bytes packed, $($rooms.Count * $roomCols * $roomRows) raw)"
+$roomSummary = "$($levels.Count) levels ($totalPacked bytes packed, $($levels.Count * $roomCols * $roomRows) raw)"
 
 # -------------------------------------------------------------- sprites
 
@@ -269,6 +132,108 @@ foreach ($a in $arts) {
 [void]$s.AppendLine('};')
 Write-Gen 'sprite_art.c' $s.ToString()
 
+# ---------------------------------------------------------------- music
+
+$file = 'data/music.txt'
+$lines = [IO.File]::ReadAllLines((Join-Path $root $file))
+$tick = 0
+$voices = 'A', 'B', 'C'
+$steps = @{}; $instr = @{}; $firstLine = @{}
+foreach ($v in $voices) { $steps[$v] = New-Object Collections.Generic.List[string] }
+for ($i = 0; $i -lt $lines.Count; $i++) {
+    $line = ($lines[$i] -replace ';.*$', '').Trim()
+    $lineNo = $i + 1
+    if ($line -eq '') { continue }
+    if ($line -match '^tick\s+(\d+)$') {
+        $tick = [int]$Matches[1]
+        if ($tick -lt 1 -or $tick -gt 255) { Fail $file $lineNo 'tick must be 1-255 frames' }
+    } elseif ($line -match '^instrument\s+([ABC])\s+(\d+)\s+(\d+)\s+(\d+)$') {
+        $vol = [int]$Matches[2]; $floor = [int]$Matches[3]; $fade = [int]$Matches[4]
+        if ($vol -gt 15 -or $floor -gt $vol) { Fail $file $lineNo 'need floor <= volume <= 15' }
+        if ($fade -lt 1 -or $fade -gt 255) { Fail $file $lineNo 'fade must be 1-255 frames' }
+        $instr[$Matches[1]] = "{ $vol, $floor, $fade }"
+    } elseif ($line -match '^([ABC]):(.*)$') {
+        $v = $Matches[1]
+        if (-not $firstLine.ContainsKey($v)) { $firstLine[$v] = $lineNo }
+        foreach ($t in ($Matches[2] -split '\s+')) {
+            if ($t -eq '' -or $t -eq '|') { continue }
+            if ($t -ne '-' -and $t -ne '.' -and $t -notmatch '^[A-G][#b]?\d$') { Fail $file $lineNo "bad step '$t'" }
+            $steps[$v].Add($t)
+        }
+    } else {
+        Fail $file $lineNo "expected 'tick', 'instrument' or a voice line"
+    }
+}
+if (-not $tick) { Fail $file 1 "missing 'tick'" }
+foreach ($v in $voices) {
+    if (-not $instr.ContainsKey($v)) { Fail $file 1 "missing 'instrument $v'" }
+    if ($steps[$v].Count -eq 0) { Fail $file 1 "voice $v has no steps" }
+    if ($steps[$v].Count -ne $steps['A'].Count) {
+        Fail $file $firstLine[$v] "voice $v is $($steps[$v].Count) steps long but voice A is $($steps['A'].Count)"
+    }
+    if ($steps[$v][0] -eq '-') { Fail $file $firstLine[$v] "voice $v starts with '-'" }
+}
+
+# Notes are numbered from 1 = C1 to 84 = B7; 0 is silence. The stream is
+# (note, frames) pairs; MUSIC_HOLD carries on the last note past 255
+# frames, and MUSIC_END loops back to the start (see src/music.c).
+$noteCount = 84
+$semitones = @{ C = 0; D = 2; E = 4; F = 5; G = 7; A = 9; B = 11 }
+function Note-Index($name) {
+    $n = $semitones[[string]$name[0]]
+    if ($name[1] -eq [char]'#') { $n++ } elseif ($name[1] -eq [char]'b') { $n-- }
+    $n += ([int][string]$name[$name.Length - 1] - 1) * 12 + 1
+    if ($n -lt 1 -or $n -gt $noteCount) { Fail $file 1 "note $name is outside C1-B7" }
+    return $n
+}
+
+$m = New-Object Text.StringBuilder
+[void]$m.AppendLine('// Generated by tools/build_data.ps1 from data/music.txt - do not edit')
+[void]$m.AppendLine('#include "music.h"')
+[void]$m.AppendLine()
+$musicBytes = 0
+foreach ($v in $voices) {
+    $bytes = New-Object Collections.Generic.List[string]
+    $events = New-Object Collections.Generic.List[object]
+    foreach ($t in $steps[$v]) {
+        if ($t -eq '-') { $events[$events.Count - 1].Steps++; continue }
+        $code = if ($t -eq '.') { 0 } else { Note-Index $t }
+        if ($t -eq '.' -and $events.Count -and $events[$events.Count - 1].Code -eq 0) { $events[$events.Count - 1].Steps++; continue }
+        $events.Add(@{ Code = $code; Steps = 1 })
+    }
+    foreach ($e in $events) {
+        $frames = $e.Steps * $tick
+        $code = $e.Code
+        while ($frames -gt 255) { $bytes.Add("$code, 255"); $frames -= 255; $code = 'MUSIC_HOLD' }
+        $bytes.Add("$code, $frames")
+    }
+    $bytes.Add('MUSIC_END')
+    $musicBytes += $bytes.Count * 2 - 1
+    [void]$m.AppendLine("static const unsigned char voice_$($v.ToLower())[] = {")
+    for ($i = 0; $i -lt $bytes.Count; $i += 8) {
+        $n = [Math]::Min(8, $bytes.Count - $i)
+        [void]$m.AppendLine('    ' + (($bytes.GetRange($i, $n)) -join ', ') + ',')
+    }
+    [void]$m.AppendLine('};')
+}
+[void]$m.AppendLine()
+[void]$m.AppendLine('const unsigned char * const music_voice[3] = { voice_a, voice_b, voice_c };')
+[void]$m.AppendLine("const unsigned char music_instrument[3][3] = { $($instr['A']), $($instr['B']), $($instr['C']) };")
+
+# Tone periods for the 128K's AY (1.7734 MHz clock)
+$ay = @()
+for ($i = 1; $i -le $noteCount; $i++) {
+    $hz = 440 * [Math]::Pow(2, (($i + 23) - 69) / 12)
+    $ay += [int][Math]::Round(1773400 / (16 * $hz))
+}
+[void]$m.AppendLine()
+[void]$m.AppendLine("const unsigned int music_period[$noteCount] = {")
+for ($i = 0; $i -lt $noteCount; $i += 12) { [void]$m.AppendLine('    ' + ($ay[$i..($i + 11)] -join ', ') + ',') }
+[void]$m.AppendLine('};')
+Write-Gen 'music_data.c' $m.ToString()
+$songSecs = '{0:0}' -f ($steps['A'].Count * $tick / 50)
+$musicSummary = "music ($songSecs s loop, $musicBytes bytes)"
+
 # ---------------------------------------------------------------- title
 
 # data/title.scr is drawn by tools/make_cover.ps1. z88dk-zx0 is the
@@ -292,4 +257,4 @@ for ($i = 0; $i -lt $packed.Count; $i += 16) {
 [void]$t.AppendLine('};')
 Write-Gen 'title_scr.c' $t.ToString()
 
-Write-Host "build_data: $roomSummary, $($arts.Count) sprite arts, title screen ($($packed.Count) bytes packed)"
+Write-Host "build_data: $roomSummary, $($arts.Count) sprite arts, $musicSummary, title screen ($($packed.Count) bytes packed)"

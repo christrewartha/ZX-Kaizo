@@ -19,14 +19,11 @@
 #define WALL_LEFT  1
 #define WALL_RIGHT 2
 
-// player_update() results needing room-level handling. On an exit the
-// player's position has already moved past the edge (x clamped to it).
+// player_update() results for main.c to handle
 #define EV_NONE       0
-#define EV_EXIT_LEFT  1
-#define EV_EXIT_RIGHT 2
-#define EV_EXIT_UP    3         // y has wrapped above the top
-#define EV_EXIT_DOWN  4         // y is below ROOM_BOTTOM_Y
-#define EV_DIED       5
+#define EV_FELL       1         // out of the bottom: y is below ROOM_BOTTOM_Y
+#define EV_DIED       2
+#define EV_DONE       3         // touched the exit
 
 typedef struct {
     ufix8 x, y;                 // top-left of the sprite

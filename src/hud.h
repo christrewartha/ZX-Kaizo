@@ -8,7 +8,14 @@
 // colour comes from the cells' attributes.
 void print_at(unsigned char col, unsigned char row, const char *text);
 
-// Draw the HUD for a newly entered room (its name, centred)
-void hud_room(const char *name);
+// Write n as 'digits' decimal digits (leading zeros) plus a terminator
+char *format_number(char *out, unsigned int n, unsigned char digits);
+
+// Draw the HUD for a newly entered level: its name, centred, over the
+// level number
+void hud_room(const char *name, unsigned char level, unsigned char count);
+
+// Update the death count on the status line
+void hud_deaths(unsigned int deaths);
 
 #endif
