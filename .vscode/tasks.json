@@ -4,7 +4,7 @@
     {
       "label": "Build Spectrum TAP",
       "type": "shell",
-      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_data.ps1; if ($LASTEXITCODE) { exit 1 }; zcc +zx -vn -compiler=sdcc -SO3 -m -Isrc -Ibuild/gen src/main.c src/player.c src/enemy.c src/room.c src/hud.c src/render.c src/sprites.c src/title.c src/music.c build/gen/rooms_data.c build/gen/sprite_art.c build/gen/title_scr.c build/gen/music_data.c src/render.asm src/input.asm src/interrupts.asm src/sound.asm -o build/game -create-app -Cz--audio",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_data.ps1; if ($LASTEXITCODE) { exit 1 }; zcc +zx -vn -compiler=sdcc -SO3 -m -Isrc -Ibuild/gen src/main.c src/player.c src/enemy.c src/room.c src/hud.c src/render.c src/sprites.c src/title.c src/music.c build/gen/rooms_data.c build/gen/sprite_art.c build/gen/title_scr.c build/gen/music_data.c src/render.asm src/input.asm src/interrupts.asm src/sound.asm -o build/game -create-app -Cz--audio '-Cz--screen=data/loading.scr'",
       "group": {
         "kind": "build",
         "isDefault": true

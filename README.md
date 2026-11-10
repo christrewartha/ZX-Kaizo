@@ -62,7 +62,7 @@ zcc +zx -vn -compiler=sdcc -SO3 -m -Isrc -Ibuild/gen \
     src/main.c src/player.c src/enemy.c src/room.c src/hud.c src/render.c src/sprites.c src/title.c src/music.c \
     build/gen/rooms_data.c build/gen/sprite_art.c build/gen/title_scr.c build/gen/music_data.c \
     src/render.asm src/input.asm src/interrupts.asm src/sound.asm \
-    -o build/game -create-app -Cz--audio
+    -o build/game -create-app -Cz--audio -Cz--screen=data/loading.scr
 fuse --machine 48 --auto-load --tape build/game.tap
 ```
 
@@ -73,7 +73,7 @@ real Spectrum.
 
 Connect your PC or phone's headphone socket to the Spectrum's **EAR** socket.
 Type `LOAD ""` and press Enter. On a 128K machine, pick **Tape Loader**
-instead. Then play `build/game.wav`. Loading takes about 2 minutes 20 seconds.
+instead. Then play `build/game.wav`. Loading takes about 3 minutes.
 If it fails, try a different volume and turn off any audio effects or EQ.
 
 ## Making levels
@@ -120,9 +120,9 @@ tables for the AY.
 
 ```
 src/         game code: C, plus Z80 assembly for input, interrupts and drawing
-data/        levels, sprite art, music and start screen
-tools/       data converter and start-screen generator
-docs/        README cover image
+data/        levels, sprite art, music, start screen and loading screen
+tools/       data converter and start- and loading-screen generators
+docs/        README images
 ```
 
 To show CPU use as coloured bars in the border, set `DEBUG_TIMING` to 1 in
@@ -146,3 +146,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/make_cover.ps1
 
 The script reads the font from a 48K ROM image. By default it looks in
 Fuse's install folder. Use `-Rom` to point it somewhere else.
+
+## The loading screen
+
+On tape, the game loads a picture first, [data/loading.scr](data/loading.scr),
+which fills in line by line while the rest of the game loads underneath.
+`tools/make_loading.ps1` paints it in the 16 Spectrum colours, then cuts each
+8x8 cell down to the two colours the hardware allows. It warns about any cell
+that held more than two colours, so you can move things until nothing clashes.
+It also saves [docs/loading.png](docs/loading.png).
+
+![KaiZXo loading screen](docs/loading.png)
+
+Run the script again after changing it:
+
+```sh
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/make_loading.ps1
+```
