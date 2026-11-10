@@ -62,11 +62,19 @@ zcc +zx -vn -compiler=sdcc -SO3 -m -Isrc -Ibuild/gen \
     src/main.c src/player.c src/enemy.c src/room.c src/hud.c src/render.c src/sprites.c src/title.c src/music.c \
     build/gen/rooms_data.c build/gen/sprite_art.c build/gen/title_scr.c build/gen/music_data.c \
     src/render.asm src/input.asm src/interrupts.asm src/sound.asm \
-    -o build/game -create-app
+    -o build/game -create-app -Cz--audio
 fuse --machine 48 --auto-load --tape build/game.tap
 ```
 
-The build writes `build/game.tap`.
+The build writes `build/game.tap` for emulators and `build/game.wav` for a
+real Spectrum.
+
+### Loading on a real Spectrum
+
+Connect your PC or phone's headphone socket to the Spectrum's **EAR** socket.
+Type `LOAD ""` and press Enter. On a 128K machine, pick **Tape Loader**
+instead. Then play `build/game.wav`. Loading takes about 2 minutes 20 seconds.
+If it fails, try a different volume and turn off any audio effects or EQ.
 
 ## Making levels
 
