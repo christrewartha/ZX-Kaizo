@@ -189,6 +189,12 @@ The page runs the game on a 128K Spectrum, so the AY music plays. It starts
 when you click the loading screen, because browsers only allow sound after a
 click.
 
+On phones and tablets, the page shows touch controls: a d-pad, plus JUMP,
+DROP and START buttons. Each one sends the emulator the same key events as
+the keyboard. Turned sideways, the page shows just the game, with the
+controls on either side. `build_web.ps1` also draws the site's icons from
+the hero's jump sprite.
+
 ### Deploying
 
 The page is live at https://kaizxo.christrewartha.com/. It's served from the
