@@ -23,6 +23,30 @@
       "problemMatcher": []
     },
     {
+      "label": "Build Web Page",
+      "type": "shell",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_web.ps1",
+      "dependsOn": ["Build Spectrum TAP"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Serve Web Page",
+      "type": "shell",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/serve_web.ps1",
+      "dependsOn": ["Build Web Page"],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Deploy Web Page",
+      "type": "shell",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/deploy_web.ps1",
+      "dependsOn": ["Build Web Page"],
+      "group": "none",
+      "problemMatcher": []
+    },
+    {
       "label": "Clean Build",
       "type": "shell",
       "command": "Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue",

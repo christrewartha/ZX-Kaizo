@@ -121,8 +121,10 @@ tables for the AY.
 ```
 src/         game code: C, plus Z80 assembly for input, interrupts and drawing
 data/        levels, sprite art, music, start screen and loading screen
-tools/       data converter and start- and loading-screen generators
+tools/       data converter, screen generators and web page build
 docs/        README images
+web/         web page template and the JSSpeccy emulator
+deploy/      service and one-time setup for the web server
 ```
 
 To show CPU use as coloured bars in the border, set `DEBUG_TIMING` to 1 in
@@ -163,3 +165,55 @@ Run the script again after changing it:
 ```sh
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/make_loading.ps1
 ```
+
+## Playing in a browser
+
+The game can run in a web page, on the
+[JSSpeccy 3](https://github.com/gasman/jsspeccy3) emulator. The page template
+is [web/index.html](web/index.html). A copy of JSSpeccy 3.2 is in
+`web/jsspeccy/`, under its GPL v3 licence.
+
+```sh
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_web.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/serve_web.ps1
+```
+
+`build_web.ps1` puts the page, the emulator and the latest `build/game.tap`
+into `build/web/`, which any static web server can serve. The tape's file
+name includes a hash of it, so browsers never load an old build.
+`serve_web.ps1` serves that folder on http://localhost:8080/, so you can try
+it before deploying. Browsers won't run the emulator from a `file://` URL.
+In VS Code, the **Build Web Page** and **Serve Web Page** tasks do the same.
+
+The page runs the game on a 128K Spectrum, so the AY music plays. It starts
+when you click the loading screen, because browsers only allow sound after a
+click.
+
+### Deploying
+
+The page is live at https://kaizxo.christrewartha.com/. It's served from the
+home server `scaramanga`, through the same Cloudflare tunnel as NFFL.
+
+```sh
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/deploy_web.ps1
+```
+
+The **Deploy Web Page** task builds everything first, then runs this. The
+script uploads `build/web/` over SSH into a new folder under
+`~/kaizxo/releases/`, then switches the `~/kaizxo/site` link to it. It keeps
+the last 5 releases. To roll back, point the link at an older one:
+`ln -sfn releases/<time> ~/kaizxo/site`. It needs SSH key login to the
+server.
+
+On the server, `kaizxo.service` runs Python's built-in web server on
+`127.0.0.1:8790`, and the tunnel sends the hostname there. To set that up the
+first time, deploy once and then run this on the server:
+
+```sh
+sudo bash ~/kaizxo/setup_server.sh
+```
+
+It installs and starts the service, then adds the hostname to
+`/etc/cloudflared/config.yml` and restarts the tunnel. It keeps a backup of the
+old config. The DNS record came from
+`cloudflared tunnel route dns <tunnel> kaizxo.christrewartha.com`.

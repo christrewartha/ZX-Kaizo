@@ -1,0 +1,18 @@
+# Serves the KaiZXo web page to the Cloudflare tunnel. Listens on this
+# machine only: the tunnel is the way in from outside.
+#
+# ~/kaizxo/site links to the current release, and tools/deploy_web.ps1
+# swaps it, so a deploy never needs a restart.
+
+[Unit]
+Description=KaiZXo web page
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=chris
+ExecStart=/usr/bin/python3 -m http.server 8790 --bind 127.0.0.1 --directory /home/chris/kaizxo/site
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
