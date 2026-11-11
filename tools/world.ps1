@@ -6,9 +6,10 @@ $roomRows = 22                  # must match ROOM_ROWS in src/room.h
 $maxY = $roomRows * 8 - 16      # lowest sprite y inside a room
 
 # Must match the T_* tile ids and tile_coll in src/room.c
-$tileIds = @{ [char]' ' = 0; [char]'#' = 1; [char]'X' = 2; [char]'=' = 3; [char]'^' = 4; [char]'v' = 5; [char]'E' = 6 }
-$tileFlags = @(0, 1, 1, 2, 4, 4, 8)
+$tileIds = @{ [char]' ' = 0; [char]'#' = 1; [char]'X' = 2; [char]'=' = 3; [char]'^' = 4; [char]'v' = 5; [char]'E' = 6; [char]'T' = 7 }
+$tileFlags = @(0, 1, 1, 2, 4, 4, 8, 16)
 $T_EXIT = 6
+$T_TROPHY = 7
 
 $colours = @{ blue = 0x41; red = 0x42; magenta = 0x43; green = 0x44; cyan = 0x45; yellow = 0x46; white = 0x47 }
 $enemyTypes = @{ walker = 'ENEMY_WALKER'; flyer = 'ENEMY_FLYER' }
@@ -29,7 +30,7 @@ function Read-World($root, $file) {
         if ($name.Length -gt 32) { Fail $file $lineNo 'level name longer than 32 characters' }
         $level = @{ Name = $name; Line = $lineNo; Index = $levels.Count
                     Enemies = New-Object Collections.Generic.List[string]; EnemyDefs = New-Object Collections.Generic.List[object]
-                    Cells = New-Object int[] ($roomCols * $roomRows); Start = $null; Exits = 0 }
+                    Cells = New-Object int[] ($roomCols * $roomRows); Start = $null; Exits = 0; Trophy = $false }
         $levels.Add($level)
 
         # Enemies, then exactly $roomRows lines of map
@@ -68,6 +69,10 @@ function Read-World($root, $file) {
                 if (-not $tileIds.ContainsKey($ch)) { Fail $file $lineNo "unknown tile '$ch' in $name column $c" }
                 $t = $tileIds[$ch]
                 if ($t -eq $T_EXIT) { $level.Exits++ }
+                if ($t -eq $T_TROPHY) {
+                    if ($level.Trophy) { Fail $file $lineNo "more than one T in $name" }
+                    $level.Trophy = $true
+                }
                 $level.Cells[$r * $roomCols + $c] = $t
             }
         }

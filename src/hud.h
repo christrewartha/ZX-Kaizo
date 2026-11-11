@@ -18,4 +18,8 @@ void hud_room(const char *name, unsigned char level, unsigned char count);
 // Update the death count on the status line
 void hud_deaths(unsigned int deaths);
 
+// Update the trophy count (trophies won of 'count'), and the cup that shows
+// whether this level's trophy is being carried
+void hud_trophies(unsigned char won, unsigned char count, unsigned char held);
+
 #endif

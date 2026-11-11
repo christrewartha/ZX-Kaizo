@@ -51,6 +51,12 @@ static unsigned char player_visible;
 static unsigned char player_colour;
 static unsigned int deaths;
 
+// The trophies: won so far (picked up, then carried out of the exit), and
+// whether this level's is being carried. Dying drops it back in its place.
+static unsigned char trophies;
+static unsigned char trophy_held;
+static unsigned char trophy_drawn;  // whether the screen shows it in place
+
 // Frames where the work didn't finish in time (watch it in a debugger)
 unsigned int frame_overruns;
 
@@ -58,6 +64,11 @@ unsigned int frame_overruns;
 static void respawn(void) {
     const room_t *room = &rooms[room_current];
 
+    if (trophy_held) {
+        trophy_held = 0;
+        room_set_trophy(1);
+        hud_trophies(trophies, room_count, 0);
+    }
     enemies_load(room->enemies, room->enemy_count);
     player.facing_left = 0;
     player_spawn(room->start_x, room->start_y);
@@ -70,6 +81,9 @@ static void start_level(unsigned char n) {
     room_load(n);
     hud_room(rooms[n].name, n + 1, room_count);
     hud_deaths(deaths);
+    hud_trophies(trophies, room_count, 0);
+    trophy_held = 0;
+    trophy_drawn = 1;
     sprites_reset();
     respawn();
     // Drawing the room takes a few frames: restart the frame timing rather
@@ -138,6 +152,7 @@ static void handle_event(unsigned char ev) {
             break;
 
         case EV_DONE:
+            if (trophy_held) hud_trophies(++trophies, room_count, 1);
             state = STATE_CLEAR;
             state_timer = 0;
             player.frame = SPR_IDLE + (player.facing_left ? SPR_LEFT : 0);
@@ -167,6 +182,44 @@ static void sync_sprites(void) {
     sprite_count = 1 + enemy_count;
 }
 
+// Whether the player's collision box is over the trophy
+static unsigned char touching_trophy(void) {
+    unsigned char left = FIX_WHOLE(player.x) + PLAYER_HB_X;
+    unsigned char top = FIX_WHOLE(player.y);
+    unsigned char c0 = left >> 3, c1 = (unsigned char)(left + PLAYER_HB_W - 1) >> 3;
+    unsigned char r0 = top >> 3, r1 = (unsigned char)(top + PLAYER_HEIGHT - 1) >> 3;
+    unsigned char r, c;
+
+    for (r = r0; r <= r1; r++) {
+        for (c = c0; c <= c1; c++) {
+            if (room_coll[((unsigned int)r << 5) | c] & TILE_TROPHY) return 1;
+        }
+    }
+    return 0;
+}
+
+// The trophy is drawn or cleared to match whether it's being carried, but
+// only once no sprite is over it: erasing a sprite puts back the screen it
+// covered, which would undo the change. Call straight after
+// sprites_render(), while 'sprites' says what's on the screen.
+static void update_trophy_cell(void) {
+    unsigned char want = !trophy_held;
+    unsigned char col, row, i;
+    sprite_t *s;
+
+    if (trophy_drawn == want || room_trophy == NO_TROPHY) return;
+    col = room_trophy & 31;
+    row = room_trophy >> 5;
+    for (i = 0, s = sprites; i < sprite_count; i++, s++) {
+        if (!s->visible) continue;
+        // A sprite covers 3 columns of cells and 2 or 3 rows
+        if (col >= (s->x >> 3) && col <= (s->x >> 3) + 2 &&
+            row >= (s->y >> 3) && row <= (unsigned char)(s->y + 15) >> 3) return;
+    }
+    room_draw_trophy(want);
+    trophy_drawn = want;
+}
+
 // One 50Hz step of game logic
 static void game_tick(unsigned char held, unsigned char pressed) {
     unsigned char ev;
@@ -193,6 +246,13 @@ static void game_tick(unsigned char held, unsigned char pressed) {
 
     enemies_update();
     ev = player_update(held, pressed);
+    if (!ev && touching_trophy()) {
+        trophy_held = 1;
+        room_set_trophy(0);
+        hud_trophies(trophies, room_count, 1);
+        beep(20, 300);
+        beep(30, 200);
+    }
     if (!ev && enemies_hit(FIX_WHOLE(player.x) + PLAYER_HURT_LEFT,
                            FIX_WHOLE(player.y) + PLAYER_HURT_TOP,
                            FIX_WHOLE(player.x) + PLAYER_HURT_RIGHT,
@@ -211,6 +271,7 @@ static void play_game(void) {
     unsigned char ticks;
 
     deaths = 0;
+    trophies = 0;
     start_level(0);
     sync_sprites();
     // The jump that started the game shouldn't also make the player jump
@@ -226,6 +287,7 @@ static void play_game(void) {
         // border, so sprites are updated before it reaches them.
         TIMING(frame_late ? INK_WHITE : INK_RED);
         sprites_render();
+        update_trophy_cell();
 
         // Normally one logic step per frame. If a whole frame was lost, run
         // the missed steps too, so the game keeps real-time speed and only
@@ -256,6 +318,6 @@ int main(void) {
     for (;;) {
         title_screen();
         play_game();
-        ending_screen(deaths);
+        ending_screen(deaths, trophies, room_count);
     }
 }

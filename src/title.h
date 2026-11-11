@@ -4,7 +4,8 @@
 // Show the start screen and wait for a jump press to start the game
 void title_screen(void);
 
-// After the last level: show the death count and wait for a jump press
-void ending_screen(unsigned int deaths);
+// After the last level: show the death count and the trophies won (of
+// 'count'), and wait for a jump press
+void ending_screen(unsigned int deaths, unsigned char trophies, unsigned char count);
 
 #endif

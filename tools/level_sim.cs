@@ -15,7 +15,8 @@ public class LevelSim
     public const int IN_RIGHT = 0x01, IN_LEFT = 0x02, IN_DOWN = 0x04, IN_JUMP = 0x08;
 
     // Collision flags (src/room.h)
-    public const byte TILE_SOLID = 0x01, TILE_PLATFORM = 0x02, TILE_HAZARD = 0x04, TILE_EXIT = 0x08;
+    public const byte TILE_SOLID = 0x01, TILE_PLATFORM = 0x02, TILE_HAZARD = 0x04, TILE_EXIT = 0x08,
+                      TILE_TROPHY = 0x10;
 
     const int ROOM_ROWS = 22;
     const int ROOM_BOTTOM_Y = ROOM_ROWS * 8 - 16;
@@ -44,6 +45,7 @@ public class LevelSim
         public int onGround, jumping, coyote, jumpBuffer;
         public int wall, wallSide, wallCoyote, wallLock;
         public int prevHeld;
+        public int trophy;          // carrying the trophy (main.c trophy_held)
     }
 
     // (ROOM_ROWS + 2) * 32 collision flags, as room_load() leaves room_coll
@@ -351,8 +353,24 @@ public class LevelSim
     public int Step(ref State p, int held, int t)
     {
         int ev = PlayerUpdate(ref p, held);
-        if (ev == EV_NONE && HitByEnemy(ref p, t)) ev = EV_DIED;
+        if (ev == EV_NONE) {
+            if (TouchingTrophy(ref p)) p.trophy = 1;
+            if (HitByEnemy(ref p, t)) ev = EV_DIED;
+        }
         return ev;
+    }
+
+    // touching_trophy() in main.c: any cell under the collision box
+    bool TouchingTrophy(ref State p)
+    {
+        int left = (Whole(p.x) + HB_X) & 0xFF;
+        int c0 = left >> 3, c1 = ((left + HB_W - 1) & 0xFF) >> 3;
+        int r0 = Whole(p.y) >> 3, r1 = ((Whole(p.y) + HEIGHT - 1) & 0xFF) >> 3;
+        if (r1 >= ROOM_ROWS + 2) r1 = ROOM_ROWS + 1;
+        for (int r = r0; r <= r1; r++)
+            for (int c = c0; c <= c1; c++)
+                if ((At(r, c) & TILE_TROPHY) != 0) return true;
+        return false;
     }
 
     // player_update()
@@ -398,6 +416,7 @@ public class LevelSim
         k = (k << 1) | U(p.wallCoyote != 0 ? 1 : 0);
         k = (k << 2) | U(p.wallLock >> 2);
         k = (k << 1) | U((p.prevHeld & IN_JUMP) != 0 ? 1 : 0);
+        k = (k << 1) | U(p.trophy);
         return k ^ phases;
     }
 
@@ -405,16 +424,44 @@ public class LevelSim
         0, IN_RIGHT, IN_LEFT, IN_JUMP, IN_JUMP | IN_RIGHT, IN_JUMP | IN_LEFT, IN_DOWN
     };
 
-    // Fewest frames the hurt box could take to reach the exit's columns,
-    // running flat out: never more than the real number, as A* needs
-    int exitLeft, exitRight;
+    // Where the search is heading: the exit, or the trophy and then the exit
+    class Target
+    {
+        public int left, right;     // its columns, in pixels
+        public int[] cellDist;      // PlanCellDistances to it
+    }
+    Target exitTarget, trophyTarget;
+    int trophyToExit;               // fewest frames from the trophy to the exit
+    bool needTrophy;
+
+    Target MakeTarget(byte flag, int up)
+    {
+        Target t = new Target();
+        t.left = 255; t.right = 0;
+        for (int i = 0; i < ROOM_ROWS * 32; i++) {
+            if ((coll[i] & flag) == 0) continue;
+            t.left = Math.Min(t.left, (i & 31) * 8);
+            t.right = Math.Max(t.right, (i & 31) * 8 + 7);
+        }
+        if (t.left > t.right) return null;
+        t.cellDist = PlanCellDistances(flag, up);
+        return t;
+    }
 
     int Estimate(ref State p)
     {
+        if (needTrophy && p.trophy == 0) return EstimateTo(ref p, trophyTarget) + trophyToExit;
+        return EstimateTo(ref p, exitTarget);
+    }
+
+    // Fewest frames the hurt box could take to reach the target's columns,
+    // running flat out: never more than the real number, as A* needs
+    int EstimateTo(ref State p, Target target)
+    {
         int left = Whole(p.x) + HURT_LEFT, right = Whole(p.x) + HURT_RIGHT;
         int dx = 0;
-        if (right < exitLeft) dx = exitLeft - right;
-        else if (left > exitRight) dx = left - exitRight;
+        if (right < target.left) dx = target.left - right;
+        else if (left > target.right) dx = left - target.right;
         int est = dx * 256 / RUN_MAX;
 
         // Routes that wind up and over walls: from the middle of the sprite
@@ -427,7 +474,7 @@ public class LevelSim
         for (int r = row - 1; r <= row + 1; r++) {
             for (int c = col - 1; c <= col + 1; c++) {
                 if (r < 0 || r >= ROOM_ROWS || c < 0 || c >= 32) continue;
-                int d = cellDist[r * 32 + c];
+                int d = target.cellDist[r * 32 + c];
                 if (d == int.MaxValue) continue;
                 int ox = Math.Max(0, Math.Max(c * 8 - cx, cx - (c * 8 + 7)));
                 int oy = Math.Max(0, Math.Max(r * 8 - cy, cy - (r * 8 + 7)));
@@ -444,20 +491,19 @@ public class LevelSim
         return est;
     }
 
-    // Fewest frames (in 16ths) from each cell to an exit cell through
+    // Fewest frames (in 16ths) from each cell to a cell with 'flag' through
     // cells that aren't solid, at full run speed across and full fall or
     // jump speed up and down
     const int CELL_ACROSS = 8 * 256 * 16 / RUN_MAX, CELL_UPDOWN = 8 * 256 * 16 / MAX_FALL;
-    int[] cellDist;
 
-    void PlanCellDistances(int up)
+    int[] PlanCellDistances(byte flag, int up)
     {
         int n = ROOM_ROWS * 32;
-        cellDist = new int[n];
+        int[] cellDist = new int[n];
         List<int> open = new List<int>();
         for (int i = 0; i < n; i++) {
             cellDist[i] = int.MaxValue;
-            if ((coll[i] & TILE_EXIT) != 0) { cellDist[i] = 0; open.Add(i); }
+            if ((coll[i] & flag) != 0) { cellDist[i] = 0; open.Add(i); }
         }
         // Few enough cells to relax repeatedly instead of keeping a heap
         while (open.Count > 0) {
@@ -478,6 +524,7 @@ public class LevelSim
             }
             open = next;
         }
+        return cellDist;
     }
 
     // Binary min-heap of state indices, ordered by frames so far + estimate
@@ -514,19 +561,21 @@ public class LevelSim
 
     // A* search over inputs. 'hold' is how many frames each input must be
     // held before it can change: 1 allows frame-perfect play, higher values
-    // ask whether a less precise player could still finish. Returns the
-    // fewest frames to the exit, or -1 if it can't be reached (or the search
-    // gave up after maxStates).
+    // ask whether a less precise player could still finish. With 'trophy',
+    // the route must pick up the trophy on the way. Returns the fewest frames
+    // to the exit, or -1 if it can't be reached (or the search gave up after
+    // maxStates). The inputs of the route found are left in LastPath.
+    public int[] LastPath;
+
     public int Solve(int startX, int startY, int hold, int maxStates, out int explored)
     {
-        exitLeft = 255; exitRight = 0;
-        for (int i = 0; i < ROOM_ROWS * 32; i++) {
-            if ((coll[i] & TILE_EXIT) == 0) continue;
-            exitLeft = Math.Min(exitLeft, (i & 31) * 8);
-            exitRight = Math.Max(exitRight, (i & 31) * 8 + 7);
-        }
+        return Solve(startX, startY, hold, maxStates, false, out explored);
+    }
 
-        if (boxes == null) PlanEnemies();
+    public int Solve(int startX, int startY, int hold, int maxStates, bool trophy, out int explored)
+    {
+        Prepare(trophy);
+        if (trophy && trophyTarget == null) { explored = 0; LastPath = null; return -1; }
         bool timed = enemyDefs.Count != 0;
         // Timing the enemies multiplies the states by the length of their
         // loops. To keep that tractable, count their phase in 8 frame steps
@@ -535,39 +584,174 @@ public class LevelSim
         // at half the top speed. The route found is then real, but may not
         // be the fastest.
         int bucket = timed ? 8 : 1, weight = timed ? 2 : 1;
-        PlanCellDistances(timed ? CELL_UPDOWN * 2 : CELL_UPDOWN);
+        return Search(Spawn(startX, startY), 0, hold, maxStates, MAX_FRAMES, null, bucket, weight, out explored);
+    }
 
+    bool prepared;
+
+    void Prepare(bool trophy)
+    {
+        needTrophy = trophy;
+        if (prepared) return;
+        if (boxes == null) PlanEnemies();
+        int up = enemyDefs.Count != 0 ? CELL_UPDOWN * 2 : CELL_UPDOWN;
+        exitTarget = MakeTarget(TILE_EXIT, up);
+        trophyTarget = MakeTarget(TILE_TROPHY, up);
+        trophyToExit = 0;
+        if (trophyTarget != null) {
+            int best = int.MaxValue;
+            for (int i = 0; i < ROOM_ROWS * 32; i++)
+                if ((coll[i] & TILE_TROPHY) != 0) best = Math.Min(best, exitTarget.cellDist[i]);
+            if (best != int.MaxValue) trophyToExit = Math.Max(0, (best - CELL_ACROSS - 48) / 16);
+        }
+        prepared = true;
+    }
+
+    // Where a local search is heading: back near where the route was at
+    // some frame, holding the trophy if the route was by then
+    class Checkpoint { public int x, y, trophy, frame; }
+
+    static bool Reached(ref State p, Checkpoint cp)
+    {
+        return Math.Abs(Whole(p.y) - cp.y) <= 8 && Math.Abs(Whole(p.x) - cp.x) <= 8 && p.trophy >= cp.trophy;
+    }
+
+    // The search itself, from state s0 after frame t0. With a checkpoint it
+    // also succeeds on reaching that, within maxFrames.
+    int Search(State s0, int t0, int hold, int maxStates, int maxFrames, Checkpoint cp,
+               int bucket, int weight, out int explored)
+    {
+        bool timed = enemyDefs.Count != 0;
         HashSet<ulong> seen = new HashSet<ulong>();
         List<State> states = new List<State>();
         List<int> frames = new List<int>();
+        List<int> parents = new List<int>();
+        List<int> acts = new List<int>();
         heap.Clear();
-
-        State s = Spawn(startX, startY);
-        seen.Add(Key(ref s, 0UL));
-        states.Add(s);
-        frames.Add(0);
-        Push(Estimate(ref s), 0);
+        LastPath = null;
         explored = 0;
+
+        if (cp != null && Reached(ref s0, cp)) { LastPath = new int[0]; return 0; }
+        seen.Add(Key(ref s0, 0UL));
+        states.Add(s0);
+        frames.Add(0);
+        parents.Add(-1);
+        acts.Add(0);
+        Push(Heuristic(ref s0, cp), 0);
 
         while (heap.Count > 0) {
             int index = Pop();
             State cur = states[index];
             int g = frames[index];
             if (++explored > maxStates) return -1;
+            if (g + hold > maxFrames) continue;
 
             foreach (int a in Actions) {
                 State n = cur;
                 int ev = EV_NONE, f;
-                for (f = 0; f < hold && ev == EV_NONE; f++) ev = Step(ref n, a, g + f + 1);
-                if (ev == EV_DONE) return g + f;
-                if (ev == EV_DIED) continue;
-                if (seen.Add(Key(ref n, timed ? EnemyPhases(ref n, g + hold, bucket) : 0UL))) {
+                bool done = false;
+                for (f = 0; f < hold && ev == EV_NONE; f++) {
+                    ev = Step(ref n, a, t0 + g + f + 1);
+                    if (ev == EV_NONE && cp != null && Reached(ref n, cp)) { f++; done = true; break; }
+                }
+                if (ev == EV_DONE && (!needTrophy || n.trophy != 0)) done = true;
+                if (done) {
+                    List<int> path = new List<int>();
+                    for (int k = 0; k < f; k++) path.Add(a);
+                    for (int q = index; parents[q] >= 0; q = parents[q])
+                        for (int k = 0; k < hold; k++) path.Add(acts[q]);
+                    path.Reverse();
+                    LastPath = path.ToArray();
+                    return g + f;
+                }
+                if (ev != EV_NONE) continue;     // died, or left without the trophy
+                if (seen.Add(Key(ref n, timed ? EnemyPhases(ref n, t0 + g + hold, bucket) : 0UL))) {
                     states.Add(n);
                     frames.Add(g + hold);
-                    Push(g + hold + weight * Estimate(ref n), states.Count - 1);
+                    parents.Add(index);
+                    acts.Add(a);
+                    Push(g + hold + weight * Heuristic(ref n, cp), states.Count - 1);
                 }
             }
         }
         return -1;
+    }
+
+    int Heuristic(ref State p, Checkpoint cp)
+    {
+        if (cp == null) return Estimate(ref p);
+        return Math.Max(Math.Abs(Whole(p.x) - cp.x) * 256 / RUN_MAX, Math.Abs(Whole(p.y) - cp.y) * 256 / MAX_FALL);
+    }
+
+    // How forgiving each jump of a route is. Each jump is pressed a frame
+    // early and late, and let go of a frame early and late: 9 ways, counting
+    // the route's own. A way counts if the player lives through it and can
+    // get back to where the route is RECOVER_FRAMES after letting go (or to the exit), changing
+    // the inputs after it as a person would. Fills in JumpFrames (the frame
+    // each jump is pressed), JumpX/JumpY (where) and JumpScores (how many of
+    // the 9 ways work), and returns the lowest score: 9 if there are none.
+    public int[] JumpFrames, JumpScores, JumpX, JumpY;
+    const int RECOVER_FRAMES = 30;
+
+    public int Tolerance(int startX, int startY, int[] path, bool trophy)
+    {
+        Prepare(trophy);
+        int n = path.Length;
+        State[] at = new State[n + 1];
+        at[0] = Spawn(startX, startY);
+        for (int f = 1; f <= n; f++) {
+            at[f] = at[f - 1];
+            Step(ref at[f], path[f - 1], f);
+        }
+        List<int> jf = new List<int>(), js = new List<int>(), jx = new List<int>(), jy = new List<int>();
+        int worst = 9;
+        int[] saved = LastPath;
+
+        for (int p = 1; p <= n; p++) {
+            bool down = (path[p - 1] & IN_JUMP) != 0;
+            bool before = p > 1 && (path[p - 2] & IN_JUMP) != 0;
+            if (!down || before) continue;
+            int r = p;
+            while (r <= n && (path[r - 1] & IN_JUMP) != 0) r++;
+
+            // Back on the route's track a little after the jump
+            Checkpoint cp = null;
+            if (r + RECOVER_FRAMES <= n) {
+                State c = at[r + RECOVER_FRAMES];
+                cp = new Checkpoint();
+                cp.x = Whole(c.x); cp.y = Whole(c.y); cp.trophy = c.trophy; cp.frame = r + RECOVER_FRAMES;
+            }
+
+            int score = 0;
+            for (int d0 = -1; d0 <= 1; d0++) {
+                for (int d1 = -1; d1 <= 1; d1++) {
+                    int ps = p + d0, rs = (r > n) ? r : r + d1;
+                    if (ps < 1 || rs <= ps) continue;
+                    if (Recovers(at, path, p, r, ps, rs, cp, trophy)) score++;
+                }
+            }
+            jf.Add(p); js.Add(score); jx.Add(Whole(at[p - 1].x)); jy.Add(Whole(at[p - 1].y));
+            if (score < worst) worst = score;
+        }
+        JumpFrames = jf.ToArray(); JumpScores = js.ToArray(); JumpX = jx.ToArray(); JumpY = jy.ToArray();
+        LastPath = saved;
+        return worst;
+    }
+
+    bool Recovers(State[] at, int[] path, int p, int r, int ps, int rs, Checkpoint cp, bool trophy)
+    {
+        int n = path.Length;
+        int w0 = Math.Min(p, ps), w1 = Math.Min(Math.Max(r, rs), n + 1);
+        State s = at[w0 - 1];
+        for (int f = w0; f < w1; f++) {
+            int a = (f <= n ? path[f - 1] : 0) & ~IN_JUMP;
+            if (f >= ps && f < rs) a |= IN_JUMP;
+            int ev = Step(ref s, a, f);
+            if (ev == EV_DONE) return !trophy || s.trophy != 0;
+            if (ev != EV_NONE) return false;
+        }
+        int until = cp == null ? n : cp.frame;
+        int explored;
+        return Search(s, w1 - 1, 1, 150000, Math.Max(until - (w1 - 1), 0) + 40, cp, 4, 2, out explored) >= 0;
     }
 }

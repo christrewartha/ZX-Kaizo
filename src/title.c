@@ -23,6 +23,7 @@
 
 #define ATTR_ENDING_TITLE 0x46  // bright yellow on black
 #define ATTR_ENDING_TEXT  0x47  // bright white on black
+#define ATTR_ENDING_TROPHIES 0x46   // bright yellow on black
 
 
 // zx0-compressed 6912-byte screen (build/gen/title_scr.c)
@@ -54,7 +55,7 @@ void title_screen(void) {
     wait_for_jump(prompt_attr, PROMPT_LEN);
 }
 
-void ending_screen(unsigned int deaths) {
+void ending_screen(unsigned int deaths, unsigned char trophies, unsigned char count) {
     char num[5];
 
     memset(SCREEN_ATTR, 0, 768);
@@ -63,9 +64,14 @@ void ending_screen(unsigned int deaths) {
     print_at(10, 8, "THE CASTLE!");
     print_at(10, 12, "DEATHS");
     print_at(17, 12, format_number(num, deaths > 9999 ? 9999 : deaths, 4));
+    print_at(9, 14, "TROPHIES");
+    print_at(18, 14, format_number(num, trophies, 2));
+    print_at(20, 14, "/");
+    print_at(21, 14, format_number(num, count, 2));
     print_at(ENDING_PROMPT_COL, HUD_ROW, ENDING_PROMPT);
     memset(SCREEN_ATTR + 6 * 32, ATTR_ENDING_TITLE, 3 * 32);
     memset(SCREEN_ATTR + 12 * 32, ATTR_ENDING_TEXT, 32);
+    memset(SCREEN_ATTR + 14 * 32, ATTR_ENDING_TROPHIES, 32);
     memset(SCREEN_ATTR + HUD_ROW * 32, ATTR_PROMPT_OFF, 32);
 
     wait_for_jump(SCREEN_ATTR + HUD_ROW * 32 + ENDING_PROMPT_COL, ENDING_PROMPT_LEN);

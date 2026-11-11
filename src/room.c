@@ -10,7 +10,8 @@
 #define T_SPIKE_UP   4          // '^'
 #define T_SPIKE_DOWN 5          // 'v'
 #define T_EXIT       6          // 'E'
-#define T_COUNT      7
+#define T_TROPHY     7          // 'T'
+#define T_COUNT      8
 
 // Tile graphics (8 bytes, top line first)
 static const unsigned char tile_gfx[T_COUNT][8] = {
@@ -21,14 +22,15 @@ static const unsigned char tile_gfx[T_COUNT][8] = {
     { 0x00, 0x00, 0x00, 0x22, 0x22, 0x77, 0x77, 0xFF },
     { 0xFF, 0x77, 0x77, 0x22, 0x22, 0x00, 0x00, 0x00 },
     { 0x18, 0x24, 0x42, 0x81, 0x81, 0x42, 0x24, 0x18 },
+    { 0x7E, 0xBD, 0xBD, 0x7E, 0x3C, 0x18, 0x18, 0x3C },
 };
 
 // Black paper everywhere so the player (no attribute of its own) takes the
 // cell's ink: bright white in open space, never clashing with solid tiles.
-// The exit is a lattice that flashes yellow.
-static const unsigned char tile_attr[T_COUNT] = { 0x47, 0x42, 0x45, 0x46, 0x47, 0x47, 0xC6 };
+// The exit is a lattice that flashes yellow; the trophy is a yellow cup.
+static const unsigned char tile_attr[T_COUNT] = { 0x47, 0x42, 0x45, 0x46, 0x47, 0x47, 0xC6, 0x46 };
 static const unsigned char tile_coll[T_COUNT] = {
-    0, TILE_SOLID, TILE_SOLID, TILE_PLATFORM, TILE_HAZARD, TILE_HAZARD, TILE_EXIT
+    0, TILE_SOLID, TILE_SOLID, TILE_PLATFORM, TILE_HAZARD, TILE_HAZARD, TILE_EXIT, TILE_TROPHY
 };
 
 
@@ -36,14 +38,38 @@ static const unsigned char tile_coll[T_COUNT] = {
 
 unsigned char room_coll[(ROOM_ROWS + 2) * 32];
 unsigned char room_current;
+unsigned int room_trophy;
+
+static void draw_tile(unsigned char col, unsigned char row, unsigned char t) {
+    unsigned char *scr = (unsigned char *)(screen_row[row << 3] + col);
+    const unsigned char *gfx = tile_gfx[t];
+    unsigned char line;
+
+    for (line = 0; line < 8; line++) {
+        *scr = *gfx++;
+        scr += 256;
+    }
+}
+
+void draw_trophy_at(unsigned char col, unsigned char row, unsigned char present) {
+    draw_tile(col, row, present ? T_TROPHY : T_EMPTY);
+}
+
+void room_set_trophy(unsigned char present) {
+    if (room_trophy != NO_TROPHY) room_coll[room_trophy] = present ? TILE_TROPHY : 0;
+}
+
+void room_draw_trophy(unsigned char present) {
+    if (room_trophy == NO_TROPHY) return;
+    draw_trophy_at(room_trophy & 31, room_trophy >> 5, present);
+    SCREEN_ATTR[room_trophy] = tile_attr[present ? T_TROPHY : T_EMPTY];
+}
 
 void room_load(unsigned char n) {
     const unsigned char *src = rooms[n].map;
     unsigned char *coll = room_coll;
     unsigned char *attr = SCREEN_ATTR;
-    unsigned char *scr;
-    const unsigned char *gfx;
-    unsigned char row, col, line, t, run;
+    unsigned char row, col, t, run;
     unsigned int i;
 
     room_current = n;
@@ -66,21 +92,16 @@ void room_load(unsigned char n) {
     for (row = 0; row < ROOM_ROWS; row++) {
         for (col = 0; col < 32; col++) {
             t = *coll++;
-            if (t != T_EMPTY) {
-                scr = (unsigned char *)(screen_row[row << 3] + col);
-                gfx = tile_gfx[t];
-                for (line = 0; line < 8; line++) {
-                    *scr = *gfx++;
-                    scr += 256;
-                }
-            }
+            if (t != T_EMPTY) draw_tile(col, row, t);
         }
     }
 
     // Colour the screen and swap the tile ids for collision flags
     coll = room_coll;
+    room_trophy = NO_TROPHY;
     for (i = 0; i < ROOM_CELLS; i++) {
         t = *coll;
+        if (t == T_TROPHY) room_trophy = i;
         *attr++ = tile_attr[t];
         *coll++ = tile_coll[t];
     }

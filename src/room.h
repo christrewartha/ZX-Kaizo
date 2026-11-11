@@ -8,6 +8,7 @@
 #define TILE_PLATFORM 0x02      // one-way: only lands from above
 #define TILE_HAZARD   0x04      // kills on contact
 #define TILE_EXIT     0x08      // finishes the level on contact
+#define TILE_TROPHY   0x10      // the level's trophy: picked up on contact
 
 // The play area is the top 22 character rows; the HUD has the last 2
 #define ROOM_ROWS     22
@@ -38,5 +39,20 @@ extern unsigned char room_current;
 // Decode and draw a room. The screen is redrawn, so the caller must
 // sprites_reset() before the next sprites_render().
 void room_load(unsigned char n);
+
+// Index into room_coll of the room's trophy, or NO_TROPHY
+#define NO_TROPHY 0xFFFF
+extern unsigned int room_trophy;
+
+// Give the trophy its collision flag back (1) or take it away (0). Just
+// the flag: drawing it is separate, as a sprite may be over it.
+void room_set_trophy(unsigned char present);
+
+// Draw the trophy in its place, or clear the cell. Bitmap and attribute,
+// so no sprite may be over it, or erasing the sprite would undo this.
+void room_draw_trophy(unsigned char present);
+
+// Draw the trophy (or a blank) into any character cell, bitmap only
+void draw_trophy_at(unsigned char col, unsigned char row, unsigned char present);
 
 #endif

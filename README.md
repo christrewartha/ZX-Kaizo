@@ -9,6 +9,11 @@ beetles and bats. Each level is one screen: start on the left and reach the
 flashing exit in the right-hand wall. Lives are unlimited. When you die you
 go back to the start of the screen.
 
+Each level also hides a trophy, off the way to the exit and harder to get
+to. Pick it up, then reach the exit to win it; die on the way and it goes
+back to its place. The cup on the status line flashes while you carry one,
+and the ending shows how many you won.
+
 At the start screen, press any jump key to begin.
 
 ## Controls
@@ -94,6 +99,7 @@ screen drawn as 22 rows of 32 characters:
 | `^` / `v` | floor / ceiling spikes |
 | `E` | exit |
 | `S` | player start |
+| `T` | trophy (one per level) |
 
 Sprites are 16x16 ASCII art in [data/sprites.txt](data/sprites.txt).
 `tools/build_data.ps1` packs both files into C data under `build/gen/`, and
@@ -107,11 +113,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/check_levels.ps1
 ```
 
 It searches for a route frame by frame, using a copy of the player physics
-in `tools/level_sim.cs`, with the enemies on their patrols. For each level
-it reports how long the route takes (for a level with no enemies, the
-fastest possible). It also reports how many frames each input can be held
-before it changes and the level can still be finished, which is a rough
-guide to how forgiving the level is. Use `-Level <n>` to check one level.
+in `tools/level_sim.cs`, with the enemies on their patrols. Each level is
+solved twice: straight to the exit, and by way of its trophy. For each
+route it reports how long it takes (for a level with no enemies, the
+fastest possible) and how many frames each input can be held before it
+changes and the route still works. It also reports the tightest jump: each
+jump is tried a frame early and late, and let go of a frame early and late,
+and the score is how many of those 9 ways still get through. Under 4/9 is
+close to frame-perfect, which is fine for a trophy but not for the way to
+the exit. Use `-Level <n>` to check one level, and `-Quick` to skip the
+jump scores, which take most of the time.
+
+To see the route the search finds, drawn over the map with each jump
+lettered and scored, run `tools/show_route.ps1 -Level <n>` (add `-Trophy`
+for the trophy route).
+
 If you change the physics in `src/player.c`, change `level_sim.cs` to match.
 
 ## Music
