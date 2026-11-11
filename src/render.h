@@ -44,8 +44,9 @@ extern const unsigned char sprite_frame_art[SPR_FRAMES];
 // Address of the first byte of each of the 192 pixel lines
 extern unsigned int screen_row[192];
 
-#define MAX_SPRITES 5
+#define MAX_SPRITES 5           // render.asm has a copy
 
+// render.asm reads these fields by their offsets: keep the two in step
 typedef struct {
     unsigned char x, y;
     unsigned char frame;
@@ -61,8 +62,8 @@ extern unsigned char sprite_count;
 // Build the line table and pre-shift all sprite frames. Call once.
 void render_init(void);
 
-// Erase every sprite drawn last frame and draw the current set.
-// Call straight after the vblank HALT so it runs ahead of the beam.
+// Erase every sprite drawn last frame and draw the current set, top to
+// bottom. Call straight after the vblank HALT so it runs ahead of the beam.
 void sprites_render(void);
 
 // Forget what was drawn (the screen underneath was redrawn)

@@ -41,9 +41,6 @@
 #define CLEAR_NOTES   8
 #define CLEAR_NOTE    4
 
-// After respawning, enemies can't hurt you for this long (the player flashes)
-#define SAFE_FRAMES   75
-
 // Most logic steps run in one frame to catch up after an overrun. More than
 // this and the game would visibly jump ahead after a long stall.
 #define MAX_CATCHUP   2
@@ -52,7 +49,6 @@ static unsigned char state;
 static unsigned char state_timer;
 static unsigned char player_visible;
 static unsigned char player_colour;
-static unsigned char safe_timer;
 static unsigned int deaths;
 
 // Frames where the work didn't finish in time (watch it in a debugger)
@@ -76,7 +72,6 @@ static void start_level(unsigned char n) {
     hud_deaths(deaths);
     sprites_reset();
     respawn();
-    safe_timer = 0;
     // Drawing the room takes a few frames: restart the frame timing rather
     // than count that as an overrun to catch up on
     wait_frame();
@@ -112,7 +107,6 @@ static void update_death(void) {
     } else if (state_timer == DEATH_HITSTOP + DEATH_PAUSE) {
         hud_deaths(++deaths);
         respawn();
-        safe_timer = SAFE_FRAMES;
     }
 }
 
@@ -160,7 +154,7 @@ static void sync_sprites(void) {
     s->y = FIX_WHOLE(player.y);
     s->frame = player.frame;
     s->colour = player_colour;
-    s->visible = player_visible && !(safe_timer & 4);
+    s->visible = player_visible;
 
     for (i = enemy_count; i; --i, ++e) {
         ++s;
@@ -189,12 +183,10 @@ static void game_tick(unsigned char held, unsigned char pressed) {
 
     enemies_update();
     ev = player_update(held, pressed);
-    if (safe_timer) {
-        safe_timer--;
-    } else if (!ev && enemies_hit(FIX_WHOLE(player.x) + PLAYER_HURT_LEFT,
-                                  FIX_WHOLE(player.y) + PLAYER_HURT_TOP,
-                                  FIX_WHOLE(player.x) + PLAYER_HURT_RIGHT,
-                                  FIX_WHOLE(player.y) + PLAYER_HURT_BOTTOM)) {
+    if (!ev && enemies_hit(FIX_WHOLE(player.x) + PLAYER_HURT_LEFT,
+                           FIX_WHOLE(player.y) + PLAYER_HURT_TOP,
+                           FIX_WHOLE(player.x) + PLAYER_HURT_RIGHT,
+                           FIX_WHOLE(player.y) + PLAYER_HURT_BOTTOM)) {
         ev = EV_DIED;
     }
 

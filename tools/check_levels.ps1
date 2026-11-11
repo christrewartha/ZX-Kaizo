@@ -1,10 +1,11 @@
 # Proves every level in data/world.txt can be finished, by searching the
 # inputs frame by frame through a port of the player physics
-# (tools/level_sim.cs). Enemies are ignored, so they can only make a level
-# harder than reported.
+# (tools/level_sim.cs), with the enemies on their patrols.
 #
-# For each level it reports the fewest frames to the exit, then the same
-# with each input held for 2, 3, 4... frames before it may change. A level
+# For each level it reports the frames its route to the exit takes (the
+# fewest possible if there are no enemies; with enemies the search is
+# looser, see LevelSim.Solve), then the same with each input held for 2,
+# 3, 4... frames before it may change. A level
 # only finishable at hold 1 needs frame-perfect play; the larger the hold
 # that still finishes, the more forgiving the level.
 #
@@ -37,6 +38,7 @@ foreach ($lv in $levels) {
     $coll = New-Object byte[] (($roomRows + 2) * $roomCols)
     for ($i = 0; $i -lt $lv.Cells.Count; $i++) { $coll[$i] = $tileFlags[$lv.Cells[$i]] }
     $sim = New-Object LevelSim (, $coll)
+    foreach ($e in $lv.EnemyDefs) { $sim.AddEnemy($e[0], $e[1], $e[2], $e[3], $e[4], $e[5]) }
 
     $results = @()
     $explored = 0

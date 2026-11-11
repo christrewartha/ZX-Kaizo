@@ -4,7 +4,7 @@
 
 A tough, precise platformer for the 48K ZX Spectrum, written in C and Z80
 assembly with z88dk. Climb, fall and wall-jump through 15 levels of a
-haunted castle, from the Garden Gate up to the Crow's Nest, past spikes,
+haunted castle, from the Kitchen up into the Eye of the Storm, past spikes,
 beetles and bats. Each level is one screen: start on the left and reach the
 flashing exit in the right-hand wall. Lives are unlimited. When you die you
 go back to the start of the screen.
@@ -34,15 +34,18 @@ together.
 - **One-way platforms** you can jump up through and drop down through.
 - **Spikes and enemies.** Walkers patrol the floors and flyers patrol the
   air. The hurt boxes are smaller than the sprites, so grazes don't kill.
-- **A steady climb in difficulty.** The early levels teach jumps, pits and
-  spikes. Later ones add one-way platforms, controlled hops under ceiling
-  spikes, wall-jump shafts, single-block footholds and faster enemies.
+- **Hard from the start, then harder.** The first eight levels mix pits,
+  spikes, wall-jump shafts and enemies. The last seven need near-perfect
+  play: hops over walkers under ceiling spikes, long jumps between single
+  blocks, wall jumps past spiked walls, and landings on one-way platforms
+  with spikes just above them.
 - **A chill soundtrack.** A three-voice lounge loop plays on the AY chip of
   128K machines (or a 48K with an AY interface). A plain 48K plays without
   music.
 - **Close to the metal.** The keyboard and joystick ports are read directly.
   A custom IM2 interrupt handler times the frames. Sprites are drawn in
-  assembly, and the logic catches up after a slow frame.
+  assembly, top to bottom and a line at a time, so none vanish ahead of the
+  beam. The logic catches up after a slow frame.
 
 ## Building
 
@@ -103,8 +106,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/check_levels.ps1
 ```
 
 It searches for a route frame by frame, using a copy of the player physics
-in `tools/level_sim.cs`. It ignores enemies. For each level it reports the
-fastest time. It also reports how many frames each input can be held
+in `tools/level_sim.cs`, with the enemies on their patrols. For each level
+it reports how long the route takes (for a level with no enemies, the
+fastest possible). It also reports how many frames each input can be held
 before it changes and the level can still be finished, which is a rough
 guide to how forgiving the level is. Use `-Level <n>` to check one level.
 If you change the physics in `src/player.c`, change `level_sim.cs` to match.

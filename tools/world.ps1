@@ -28,7 +28,7 @@ function Read-World($root, $file) {
         $name = $Matches[1].Trim()
         if ($name.Length -gt 32) { Fail $file $lineNo 'level name longer than 32 characters' }
         $level = @{ Name = $name; Line = $lineNo; Index = $levels.Count
-                    Enemies = New-Object Collections.Generic.List[string]
+                    Enemies = New-Object Collections.Generic.List[string]; EnemyDefs = New-Object Collections.Generic.List[object]
                     Cells = New-Object int[] ($roomCols * $roomRows); Start = $null; Exits = 0 }
         $levels.Add($level)
 
@@ -47,6 +47,7 @@ function Read-World($root, $file) {
             if ($min -lt 1 -or $max -gt $limit -or $min -gt $max) { Fail $file $lineNo "patrol limits must satisfy 1 <= min <= max <= $limit" }
             if ($speed -eq 0) { Fail $file $lineNo 'enemy speed is zero' }
             if ($level.Enemies.Count -eq $maxEnemies) { Fail $file $lineNo "more than $maxEnemies enemies in one level" }
+            $level.EnemyDefs.Add(@($(if ($f[0] -eq 'walker') { 0 } else { 1 }), $x, $y, $min, $max, $speed))
             $level.Enemies.Add("    { $($enemyTypes[$f[0]]), $x, $y, $min, $max, $speed, 0x$('{0:X2}' -f $colours[$f[6]]) },")
         }
 

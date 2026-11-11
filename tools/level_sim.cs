@@ -1,7 +1,8 @@
 // A frame-exact port of the player physics in src/player.c, used by
 // tools/check_levels.ps1 to prove every level can be finished. Keep it in
 // step with player.c and player.h: same constants, same order of updates,
-// same 8.8 fixed point wrapping. Enemies are not simulated.
+// same 8.8 fixed point wrapping. The enemies follow src/enemy.c and main.c's
+// game_tick(): they move first, then the player, then they can hit.
 //
 // Written for the C# 5 compiler that Windows PowerShell 5.1's Add-Type uses.
 
@@ -49,6 +50,110 @@ public class LevelSim
     readonly byte[] coll;
 
     public LevelSim(byte[] collision) { coll = collision; }
+
+    // Enemies. Their patrols don't depend on the player, so each frame's
+    // hit boxes are worked out in advance. Each enemy settles into a loop,
+    // so where it is at frame t comes down to its phase in that loop.
+    const int ENEMY_WALKER = 0, MAX_FRAMES = 20000;
+    static readonly int[] HitLeft = { 2, 1 }, HitRight = { 13, 14 }, HitTop = { 4, 3 }, HitBottom = { 15, 10 };
+
+    List<int[]> enemyDefs = new List<int[]>();
+    int[] boxes;                // [frame][enemy][left, top, right, bottom]
+    int[] loopStart, loopLength;
+
+    public void AddEnemy(int type, int x, int y, int min, int max, int speed)
+    {
+        enemyDefs.Add(new int[] { type, x, y, min, max, speed });
+        boxes = null;
+    }
+
+    void PlanEnemies()
+    {
+        int n = enemyDefs.Count;
+        int[] pos = new int[n], vel = new int[n];
+        List<Dictionary<int, int>> seenAt = new List<Dictionary<int, int>>();
+        loopStart = new int[n];
+        loopLength = new int[n];
+        for (int i = 0; i < n; i++) {
+            int[] d = enemyDefs[i];
+            pos[i] = Fix(d[0] == ENEMY_WALKER ? d[1] : d[2]);
+            vel[i] = d[5];
+            seenAt.Add(new Dictionary<int, int>());
+        }
+        boxes = new int[(MAX_FRAMES + 1) * n * 4];
+
+        for (int t = 1; t <= MAX_FRAMES; t++) {
+            // enemies_update()
+            for (int i = 0; i < n; i++) {
+                int[] d = enemyDefs[i];
+                pos[i] = (pos[i] + vel[i]) & 0xFFFF;
+                int w = Whole(pos[i]);
+                if (vel[i] > 0) {
+                    if (w >= d[4]) { pos[i] = Fix(d[4]); vel[i] = -vel[i]; }
+                } else if (w <= d[3]) {
+                    pos[i] = Fix(d[3]); vel[i] = -vel[i];
+                }
+                int ex = d[0] == ENEMY_WALKER ? Whole(pos[i]) : d[1];
+                int ey = d[0] == ENEMY_WALKER ? d[2] : Whole(pos[i]);
+                int b = (t * n + i) * 4;
+                boxes[b] = ex + HitLeft[d[0]];
+                boxes[b + 1] = ey + HitTop[d[0]];
+                boxes[b + 2] = ex + HitRight[d[0]];
+                boxes[b + 3] = ey + HitBottom[d[0]];
+
+                int first, key = (pos[i] << 1) | (vel[i] > 0 ? 1 : 0);
+                if (loopLength[i] != 0) continue;
+                if (seenAt[i].TryGetValue(key, out first)) {
+                    loopStart[i] = first;
+                    loopLength[i] = t - first;
+                } else {
+                    seenAt[i][key] = t;
+                }
+            }
+        }
+    }
+
+    // Distance from the player within which an enemy's timing matters to
+    // the search: about as far as the player travels in half a second
+    const int NEAR = 48;
+
+    // Which part of their loops the enemies now near the player are in.
+    // States at the same place that differ only in this are the same to
+    // the search. Far enemies are left out, which may hide a route that
+    // needed a far enemy's timing but keeps the search small. Hashed to 64
+    // bits; a clash could only hide a route too.
+    ulong EnemyPhases(ref State p, int t, int bucket)
+    {
+        ulong h = 0;
+        int px = Whole(p.x), py = Whole(p.y);
+        int n = enemyDefs.Count;
+        for (int i = 0; i < n; i++) {
+            int b = (Math.Min(t, MAX_FRAMES) * n + i) * 4;
+            if (px + 16 + NEAR < boxes[b] || px - NEAR > boxes[b + 2] ||
+                py + 16 + NEAR < boxes[b + 1] || py - NEAR > boxes[b + 3]) continue;
+            int phase = t;
+            if (loopLength[i] != 0 && t >= loopStart[i])
+                phase = loopStart[i] + (t - loopStart[i]) % loopLength[i];
+            h = (h ^ (ulong)(phase / bucket + 1) ^ ((ulong)i << 40)) * 0x9E3779B97F4A7C15UL;
+        }
+        return h;
+    }
+
+    // enemies_hit() against the player's hurt box, on frame t
+    bool HitByEnemy(ref State p, int t)
+    {
+        int n = enemyDefs.Count;
+        if (n == 0) return false;
+        if (t > MAX_FRAMES) return true;
+        int left = (Whole(p.x) + HURT_LEFT) & 0xFF, right = (Whole(p.x) + HURT_RIGHT) & 0xFF;
+        int top = (Whole(p.y) + HURT_TOP) & 0xFF, bottom = (Whole(p.y) + HURT_BOTTOM) & 0xFF;
+        for (int i = 0; i < n; i++) {
+            int b = (t * n + i) * 4;
+            if (right >= boxes[b] && left <= boxes[b + 2] &&
+                bottom >= boxes[b + 1] && top <= boxes[b + 3]) return true;
+        }
+        return false;
+    }
 
     static int Whole(int f) { return (f >> 8) & 0xFF; }
     static int Fix(int n) { return (n << 8) & 0xFFFF; }
@@ -242,8 +347,16 @@ public class LevelSim
         }
     }
 
+    // One game_tick() on frame t, counting from 1 at the (re)start of the level
+    public int Step(ref State p, int held, int t)
+    {
+        int ev = PlayerUpdate(ref p, held);
+        if (ev == EV_NONE && HitByEnemy(ref p, t)) ev = EV_DIED;
+        return ev;
+    }
+
     // player_update()
-    public int Step(ref State p, int held)
+    int PlayerUpdate(ref State p, int held)
     {
         int pressed = held & ~p.prevHeld;
         p.prevHeld = held;
@@ -270,7 +383,8 @@ public class LevelSim
     // path; it can only miss the very tightest ones.
     static ulong U(int v) { return (ulong)(uint)v; }
 
-    static ulong Key(ref State p)
+    // With enemies about, when matters too: 'phases' says where they are
+    static ulong Key(ref State p, ulong phases)
     {
         ulong k = U(Whole(p.x));
         k = (k << 8) | U(Whole(p.y));
@@ -284,7 +398,7 @@ public class LevelSim
         k = (k << 1) | U(p.wallCoyote != 0 ? 1 : 0);
         k = (k << 2) | U(p.wallLock >> 2);
         k = (k << 1) | U((p.prevHeld & IN_JUMP) != 0 ? 1 : 0);
-        return k;
+        return k ^ phases;
     }
 
     static readonly int[] Actions = {
@@ -301,7 +415,69 @@ public class LevelSim
         int dx = 0;
         if (right < exitLeft) dx = exitLeft - right;
         else if (left > exitRight) dx = left - exitRight;
-        return dx * 256 / RUN_MAX;
+        int est = dx * 256 / RUN_MAX;
+
+        // Routes that wind up and over walls: from the middle of the sprite
+        // into a neighbouring cell, then the cell distance from there. It
+        // must never drop faster than a frame per frame, or A* would keep
+        // worse routes, so it measures to the edges of the cells.
+        int cx = Whole(p.x) + 8, cy = Whole(p.y) + 8;
+        int row = cy >> 3, col = cx >> 3, best = int.MaxValue;
+        if (row >= ROOM_ROWS) return est;
+        for (int r = row - 1; r <= row + 1; r++) {
+            for (int c = col - 1; c <= col + 1; c++) {
+                if (r < 0 || r >= ROOM_ROWS || c < 0 || c >= 32) continue;
+                int d = cellDist[r * 32 + c];
+                if (d == int.MaxValue) continue;
+                int ox = Math.Max(0, Math.Max(c * 8 - cx, cx - (c * 8 + 7)));
+                int oy = Math.Max(0, Math.Max(r * 8 - cy, cy - (r * 8 + 7)));
+                d += Math.Max(ox * 16 * 256 / RUN_MAX, oy * 16 * 256 / MAX_FALL);
+                if (d < best) best = d;
+            }
+        }
+        // Less a step for being anywhere in that cell, and the reach of the
+        // hurt box
+        if (best != int.MaxValue) {
+            best = (best - CELL_ACROSS - 48) / 16;
+            if (best > est) est = best;
+        }
+        return est;
+    }
+
+    // Fewest frames (in 16ths) from each cell to an exit cell through
+    // cells that aren't solid, at full run speed across and full fall or
+    // jump speed up and down
+    const int CELL_ACROSS = 8 * 256 * 16 / RUN_MAX, CELL_UPDOWN = 8 * 256 * 16 / MAX_FALL;
+    int[] cellDist;
+
+    void PlanCellDistances(int up)
+    {
+        int n = ROOM_ROWS * 32;
+        cellDist = new int[n];
+        List<int> open = new List<int>();
+        for (int i = 0; i < n; i++) {
+            cellDist[i] = int.MaxValue;
+            if ((coll[i] & TILE_EXIT) != 0) { cellDist[i] = 0; open.Add(i); }
+        }
+        // Few enough cells to relax repeatedly instead of keeping a heap
+        while (open.Count > 0) {
+            List<int> next = new List<int>();
+            foreach (int i in open) {
+                int r = i >> 5, c = i & 31;
+                for (int dr = -1; dr <= 1; dr++) {
+                    for (int dc = -1; dc <= 1; dc++) {
+                        int nr = r + dr, nc = c + dc;
+                        if ((dr == 0 && dc == 0) || nr < 0 || nr >= ROOM_ROWS || nc < 0 || nc >= 32) continue;
+                        int j = nr * 32 + nc;
+                        if ((coll[j] & TILE_SOLID) != 0) continue;
+                        int v = dr > 0 ? up : (dr < 0 ? CELL_UPDOWN : 0);
+                        int d = cellDist[i] + Math.Max(dc != 0 ? CELL_ACROSS : 0, v);
+                        if (d < cellDist[j]) { cellDist[j] = d; next.Add(j); }
+                    }
+                }
+            }
+            open = next;
+        }
     }
 
     // Binary min-heap of state indices, ordered by frames so far + estimate
@@ -350,13 +526,24 @@ public class LevelSim
             exitRight = Math.Max(exitRight, (i & 31) * 8 + 7);
         }
 
+        if (boxes == null) PlanEnemies();
+        bool timed = enemyDefs.Count != 0;
+        // Timing the enemies multiplies the states by the length of their
+        // loops. To keep that tractable, count their phase in 8 frame steps
+        // (so the search can only stand and wait in steps of 8 frames), and
+        // push harder towards the exit: weighted A*, with climbing costed
+        // at half the top speed. The route found is then real, but may not
+        // be the fastest.
+        int bucket = timed ? 8 : 1, weight = timed ? 2 : 1;
+        PlanCellDistances(timed ? CELL_UPDOWN * 2 : CELL_UPDOWN);
+
         HashSet<ulong> seen = new HashSet<ulong>();
         List<State> states = new List<State>();
         List<int> frames = new List<int>();
         heap.Clear();
 
         State s = Spawn(startX, startY);
-        seen.Add(Key(ref s));
+        seen.Add(Key(ref s, 0UL));
         states.Add(s);
         frames.Add(0);
         Push(Estimate(ref s), 0);
@@ -371,13 +558,13 @@ public class LevelSim
             foreach (int a in Actions) {
                 State n = cur;
                 int ev = EV_NONE, f;
-                for (f = 0; f < hold && ev == EV_NONE; f++) ev = Step(ref n, a);
+                for (f = 0; f < hold && ev == EV_NONE; f++) ev = Step(ref n, a, g + f + 1);
                 if (ev == EV_DONE) return g + f;
                 if (ev == EV_DIED) continue;
-                if (seen.Add(Key(ref n))) {
+                if (seen.Add(Key(ref n, timed ? EnemyPhases(ref n, g + hold, bucket) : 0UL))) {
                     states.Add(n);
                     frames.Add(g + hold);
-                    Push(g + hold + Estimate(ref n), states.Count - 1);
+                    Push(g + hold + weight * Estimate(ref n), states.Count - 1);
                 }
             }
         }
