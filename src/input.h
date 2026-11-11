@@ -8,6 +8,7 @@
 #define IN_DOWN  0x04
 #define IN_UP    0x08
 #define IN_FIRE  0x10
+#define IN_SKIP  0x20            // keyboard only: Kempston bits stop at 0x10
 
 #define IN_JUMP  (IN_UP | IN_FIRE)
 
@@ -18,7 +19,8 @@ extern unsigned char kempston_on;
 extern void input_init(void);
 
 // Poll the keyboard half-rows and Kempston port directly - no ROM routines,
-// no key repeat, no latency. Keys: O/P left/right, Q/SPACE/M jump, A down.
+// no key repeat, no latency. Keys: O/P left/right, Q/SPACE/M jump, A down,
+// N skip level.
 extern unsigned char input_read(void);
 
 #endif

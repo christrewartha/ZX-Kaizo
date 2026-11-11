@@ -181,6 +181,16 @@ static void game_tick(unsigned char held, unsigned char pressed) {
     }
     if (state != STATE_PLAY) return;
 
+    // Skip straight to the next level, or finish the game on the last one
+    if (pressed & IN_SKIP) {
+        if (room_current + 1 == room_count) {
+            state = STATE_WON;
+        } else {
+            start_level(room_current + 1);
+        }
+        return;
+    }
+
     enemies_update();
     ev = player_update(held, pressed);
     if (!ev && enemies_hit(FIX_WHOLE(player.x) + PLAYER_HURT_LEFT,

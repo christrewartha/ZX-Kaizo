@@ -18,6 +18,7 @@ At the start screen, press any jump key to begin.
 | Left / right | `O` / `P` | left / right |
 | Jump | `Q`, `Space` or `M` | up or fire |
 | Drop through a platform | hold `A` | hold down |
+| Skip to the next level | `N` | |
 
 The Kempston interface is detected automatically. Keyboard and joystick work
 together.
@@ -194,7 +195,7 @@ when you click the loading screen, because browsers only allow sound after a
 click.
 
 On phones and tablets, the page shows touch controls: a d-pad, plus JUMP,
-DROP and START buttons. Each one sends the emulator the same key events as
+DROP, START and SKIP buttons. Each one sends the emulator the same key events as
 the keyboard. Turned sideways, the page shows just the game, with the
 controls on either side. `build_web.ps1` also draws the site's icons from
 the hero's jump sprite.

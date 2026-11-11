@@ -63,13 +63,18 @@ no_q:
     jr c,no_a
     set 2,c             ; IN_DOWN
 no_a:
-    ld a,$7f            ; B N M SYM SPACE   (bit 0 = SPACE, bit 2 = M)
+    ld a,$7f            ; B N M SYM SPACE   (bit 0 = SPACE, bit 2 = M, bit 3 = N)
     in a,($fe)
     cpl
+    ld b,a
     and $05
     jr z,no_fire
     set 4,c             ; IN_FIRE
 no_fire:
+    bit 3,b
+    jr z,no_n
+    set 5,c             ; IN_SKIP
+no_n:
     ld l,c
     ld h,0
     ret
