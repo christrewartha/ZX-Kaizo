@@ -15,11 +15,13 @@
 #   Under 4/9 is close to frame-perfect: fine for a trophy, not for the
 #   way to the exit.
 #
-#   powershell -File tools/check_levels.ps1 [-Level <n>] [-MaxHold <n>] [-Quick]
+#   powershell -File tools/check_levels.ps1 [-Level <n>] [-MaxHold <n>] [-Quick] [-Amiga]
 #
 # -Quick skips the tightest-jump measure, which takes most of the time.
+# -Amiga uses the Amiga's shorter boxes for Foxy (PLAYER_TOP and
+# PLAYER_HURT_TOP in tools/build_amiga.ps1).
 
-param([int]$Level = 0, [int]$MaxHold = 6, [int]$MaxStates = 12000000, [switch]$Quick)
+param([int]$Level = 0, [int]$MaxHold = 6, [int]$MaxStates = 12000000, [switch]$Quick, [switch]$Amiga)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -34,6 +36,7 @@ function Warn($file, $line, $msg) {
 
 . (Join-Path $PSScriptRoot 'world.ps1')
 Add-Type -Path (Join-Path $PSScriptRoot 'level_sim.cs')
+if ($Amiga) { [LevelSim]::TOP = 2; [LevelSim]::HURT_TOP = 6 }
 
 $file = 'data/world.txt'
 $levels = Read-World $root $file

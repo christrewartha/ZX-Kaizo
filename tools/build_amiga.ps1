@@ -1,9 +1,8 @@
 # Builds the Amiga version:
 #   tools/build_data.ps1    -> build/gen/          (levels, shared)
-#   amiga/data/tiles.txt    -> build/amigagen/gfx_data.c/h  16x16 tiles
-#   c64/data/sprites.txt    -> the hero: the C64 art scaled up to 32x32
-#                              with Scale2x, then outlined and shaded
-#   (drawn here)            -> the parallax background
+#   assets/ (Sunny Land)    -> build/amigagen/gfx_data.c/h: the palette,
+#                              tiles, Foxy's sprites and the enemies
+#   c64/data/music.txt      -> build/amigagen/song_data.c and sound_data.c
 # then the "Amiga C/C++ Compile, Debug & Profile" VS Code extension's GCC
 # builds build/amiga/kaiz.exe, and exe2adf makes a bootable disk image,
 # build/amiga/kaiz.adf. Errors are reported as file:line: for VS Code.
@@ -55,146 +54,213 @@ function Words($sb, $words, $perRow) {
     }
 }
 
-# ---------------------------------------------------------------- tiles
+# ------------------------------------------------------------- the art
 
-$file = 'amiga/data/tiles.txt'
-$lines = [IO.File]::ReadAllLines((Join-Path $root $file))
-$tiles = New-Object Collections.Generic.List[object]
-$cur = $null
-for ($i = 0; $i -lt $lines.Count; $i++) {
-    $line = ($lines[$i] -replace ';.*$', '').Trim()
-    if ($line -eq '') { continue }
-    if ($line -match '^\[(\w+)\]$') {
-        $cur = @{ Name = $Matches[1].ToUpper(); Rows = New-Object Collections.Generic.List[string]; Line = $i + 1 }
-        $tiles.Add($cur)
-        continue
+# The art is Sunny Land by ansimuz, in assets/ (licensed: not in the
+# repository, so this build needs a copy there). It all goes on one screen
+# of 32 colours: 5 bitplanes for the level, its decorations and the
+# enemies, and hardware sprites for Foxy. Attached sprites draw in colours
+# 17-31, which the level shares, so Foxy's colours go there first.
+$assets = Join-Path $root 'assets'
+if (-not (Test-Path (Join-Path $assets 'environment/tileset.png'))) {
+    Fail 'assets/environment/tileset.png' 1 'the Sunny Land art (by ansimuz) is missing: put the pack in assets/'
+}
+Add-Type -AssemblyName System.Drawing
+$images = @{}
+function Img($rel) {
+    if (-not $images.ContainsKey($rel)) {
+        $path = Join-Path $assets $rel
+        if (-not (Test-Path $path)) { Fail "assets/$rel" 1 'missing from the art pack' }
+        $images[$rel] = [Drawing.Bitmap]::FromFile($path)
     }
-    if (-not $cur) { Fail $file ($i + 1) 'tile row before any [name]' }
-    if ($line -notmatch '^[.1-7]{16}$') { Fail $file ($i + 1) "a tile row is 16 of . 1-7, not '$line'" }
-    $cur.Rows.Add($line)
+    return $images[$rel]
 }
-foreach ($t in $tiles) { if ($t.Rows.Count -ne 16) { Fail $file $t.Line "[$($t.Name)] has $($t.Rows.Count) rows, needs 16" } }
-
-# The exit animates: 4 frames, each 4 pixels further right (wrapping)
-$exit = $tiles | Where-Object { $_.Name -eq 'EXIT' }
-if (-not $exit) { Fail $file 1 'no [exit] tile' }
-for ($f = 1; $f -lt 4; $f++) {
-    $rows = New-Object Collections.Generic.List[string]
-    foreach ($r in $exit.Rows) { $s = 4 * $f; $rows.Add($r.Substring(16 - $s) + $r.Substring(0, 16 - $s)) }
-    $tiles.Add(@{ Name = "EXIT_$f"; Rows = $rows })
+# A colour as 12-bit Amiga RGB, or -1 for see-through
+function Px($bmp, $x, $y) {
+    if ($x -lt 0 -or $y -lt 0 -or $x -ge $bmp.Width -or $y -ge $bmp.Height) { return -1 }
+    $p = $bmp.GetPixel($x, $y)
+    if ($p.A -lt 128) { return -1 }
+    return (([int]$p.R -shr 4) -shl 8) -bor (([int]$p.G -shr 4) -shl 4) -bor ([int]$p.B -shr 4)
+}
+# Read a w x h block (from x, y) into a grid of 12-bit colours
+function Grab($rel, $x, $y, $w, $h) {
+    $b = Img $rel
+    $g = New-Object 'int[,]' $h, $w
+    for ($yy = 0; $yy -lt $h; $yy++) { for ($xx = 0; $xx -lt $w; $xx++) { $g[$yy, $xx] = Px $b ($x + $xx) ($y + $yy) } }
+    return ,$g
+}
+# A w x h grid of see-through, with art pasted in at (x, y)
+function Canvas($w, $h) {
+    $g = New-Object 'int[,]' $h, $w
+    for ($yy = 0; $yy -lt $h; $yy++) { for ($xx = 0; $xx -lt $w; $xx++) { $g[$yy, $xx] = -1 } }
+    return ,$g
+}
+function Paste($dst, $src, $x, $y) {
+    for ($yy = 0; $yy -lt $src.GetLength(0); $yy++) {
+        for ($xx = 0; $xx -lt $src.GetLength(1); $xx++) {
+            $v = $src[$yy, $xx]
+            $ty = $y + $yy; $tx = $x + $xx
+            if ($v -ge 0 -and $ty -ge 0 -and $tx -ge 0 -and $ty -lt $dst.GetLength(0) -and $tx -lt $dst.GetLength(1)) { $dst[$ty, $tx] = $v }
+        }
+    }
+}
+function Whole($rel) { $b = Img $rel; return ,(Grab $rel 0 0 $b.Width $b.Height) }
+function Mirror($g) {
+    $h = $g.GetLength(0); $w = $g.GetLength(1)
+    $m = New-Object 'int[,]' $h, $w
+    for ($y = 0; $y -lt $h; $y++) { for ($x = 0; $x -lt $w; $x++) { $m[$y, $x] = $g[$y, ($w - 1 - $x)] } }
+    return ,$m
 }
 
-# 16 rows of 3 plane words each
+# --- Foxy: 33x32 frames, cut to 32 (the last column is always empty)
+$foxFrames = [ordered]@{
+    IDLE_1 = 'idle/sprites/f-01.png'; IDLE_2 = 'idle/sprites/f-02.png'; IDLE_3 = 'idle/sprites/f-03.png'; IDLE_4 = 'idle/sprites/f-04.png'
+    RUN_1 = 'run/sprites/f-01.png'; RUN_2 = 'run/sprites/f-02.png'; RUN_3 = 'run/sprites/f-03.png'
+    RUN_4 = 'run/sprites/f-04.png'; RUN_5 = 'run/sprites/f-05.png'; RUN_6 = 'run/sprites/f-06.png'
+    JUMP = 'jump/sprites/f-01.png'; FALL = 'jump/sprites/f-02.png'
+    WALL_1 = 'Wall Grab/sprites/f-01.png'; WALL_2 = 'Wall Grab/sprites/f-02.png'
+    HURT_1 = 'hurt/sprites/f-01.png'; HURT_2 = 'hurt/sprites/f-02.png'
+    VICTORY = 'Victory/sprites/f-01.png'; CROUCH = 'crouch/sprites/f-01.png'
+}
+$fox = [ordered]@{}
+foreach ($k in $foxFrames.Keys) { $fox[$k] = Grab "Characters/Foxy/$($foxFrames[$k])" 0 0 32 32 }
+
+# --- The level's pieces, 16x16 cells from the tileset and props
+$ts = 'environment/tileset.png'
+function Cell($cx, $cy) { return ,(Grab $ts ($cx * 16) ($cy * 16) 16 16) }
+$tiles = [ordered]@{}
+$tiles['EMPTY'] = Canvas 16 16
+# Earth with grass on top (outdoors), and carved stone (indoors), each a
+# 3x3 set: corners, edges and the middle
+$sets = @{ OUT = @(1, 1, 2); IN = @(15, 7, 2) }
+foreach ($set in 'OUT', 'IN') {
+    $s = $sets[$set]
+    $names = @('TL', 'T', 'TR', 'L', 'C', 'R', 'BL', 'B', 'BR')
+    for ($i = 0; $i -lt 9; $i++) {
+        $tiles["${set}_$($names[$i])"] = Cell ($s[0] + ($i % 3) * $s[2]) ($s[1] + [Math]::Floor($i / 3) * $s[2])
+    }
+}
+$tiles['LOG_L'] = Cell 9 1
+$tiles['LOG_M'] = Cell 10 1
+$tiles['LOG_R'] = Cell 8 3
+$tiles['BLOCK'] = Whole 'environment/Props/block.png'
+$t = Canvas 16 16; Paste $t (Whole 'environment/Props/spikes.png') 0 6; $tiles['SPIKE_UP'] = $t
+$t = Canvas 16 16; Paste $t (Whole 'environment/Props/spikes-top.png') 0 0; $tiles['SPIKE_DOWN'] = $t
+for ($i = 1; $i -le 5; $i++) {
+    $t = Canvas 16 16; Paste $t (Whole "Misc/Sunnyland items/Sprites/gem/gem-$i.png") 0 2; $tiles["GEM_$i"] = $t
+}
+# The door is the exit, 2 cells by 3, standing on the floor
+foreach ($door in @(@('DOOR', 'door.png'), @('DOOR_OPEN', 'door-opened.png'))) {
+    $big = Canvas 32 48
+    Paste $big (Whole "environment/Props/$($door[1])") 5 15
+    for ($i = 0; $i -lt 6; $i++) {
+        $cx = $i % 2; $cy = [Math]::Floor($i / 2)
+        $t = Canvas 16 16
+        for ($y = 0; $y -lt 16; $y++) { for ($x = 0; $x -lt 16; $x++) { $t[$y, $x] = $big[($cy * 16 + $y), ($cx * 16 + $x)] } }
+        $tiles["$($door[0])_$i"] = $t
+    }
+}
+
+# --- Enemies: the opossum walks (it faces left; mirrored to walk right),
+# the eagle flies. Each frame sits on the game's 32x32 box at an offset.
+$bobs = [ordered]@{}
+for ($i = 1; $i -le 6; $i++) {
+    $g = Whole "Characters/Opossum/opossum/opossum-$i.png"
+    $bobs["WALKER_$i"] = @{ Art = $g; X = 1; Y = 5 }
+    $bobs["WALKER_${i}_R"] = @{ Art = (Mirror $g); X = 3; Y = 5 }
+}
+for ($i = 1; $i -le 4; $i++) {
+    $bobs["FLYER_$i"] = @{ Art = (Whole "Characters/eagle/Sprites/attack/eagle-attack-$i.png"); X = -3; Y = -6 }
+}
+
+# --- The palette. Colour 0 is the copper sky; 31 is kept for the title's
+# shining logo (and the HUD's text colour).
+$pal = New-Object 'int[]' 32
+$index = @{}
+$foxCount = @{}
+foreach ($g in $fox.Values) { foreach ($v in $g) { if ($v -ge 0) { $foxCount[$v] = 1 + $foxCount[$v] } } }
+$n = 17
+foreach ($kv in $foxCount.GetEnumerator() | Sort-Object Value -Descending) {
+    if ($n -gt 30) { Fail 'assets/Characters/Foxy' 1 'Foxy has more than 14 colours' }
+    $pal[$n] = $kv.Key; $index[$kv.Key] = $n; $n++
+}
+$free = @(1..16) + @($n..30)
+$count = @{}
+foreach ($g in @($tiles.Values) + @($bobs.Values | ForEach-Object { $_.Art })) {
+    foreach ($v in $g) { if ($v -ge 0 -and -not $index.ContainsKey($v)) { $count[$v] = 1 + $count[$v] } }
+}
+$ranked = @($count.GetEnumerator() | Sort-Object Value -Descending)
+for ($i = 0; $i -lt $ranked.Count -and $i -lt $free.Count; $i++) {
+    $pal[$free[$i]] = $ranked[$i].Key; $index[$ranked[$i].Key] = $free[$i]
+}
+# Any colours left over become the nearest one in the palette
+function Nearest($v) {
+    $best = 1; $bd = 1e9
+    for ($i = 1; $i -lt 31; $i++) {
+        $p = $pal[$i]
+        $d = [Math]::Pow((($p -shr 8) -band 15) - (($v -shr 8) -band 15), 2) + [Math]::Pow((($p -shr 4) -band 15) - (($v -shr 4) -band 15), 2) + [Math]::Pow(($p -band 15) - ($v -band 15), 2)
+        if ($d -lt $bd) { $bd = $d; $best = $i }
+    }
+    return $best
+}
+$merged = 0
+for ($i = $free.Count; $i -lt $ranked.Count; $i++) { $index[$ranked[$i].Key] = Nearest $ranked[$i].Key; $merged++ }
+function Lum($v) { return 3 * (($v -shr 8) -band 15) + 6 * (($v -shr 4) -band 15) + (($v -band 15)) }
+$dark = 1; $light = 1
+foreach ($i in @($index.Values | Sort-Object -Unique)) { if ((Lum $pal[$i]) -lt (Lum $pal[$dark])) { $dark = $i }; if ((Lum $pal[$i]) -gt (Lum $pal[$light])) { $light = $i } }
+$pal[31] = 0xfd6
+[void]$h.AppendLine('// The 32 colours (colour 0 is the copper sky; 31 shines on the title)')
+[void]$h.AppendLine('extern const unsigned short game_palette[32];')
+[void]$h.AppendLine("#define PAL_DARKEST $dark")
+[void]$h.AppendLine("#define PAL_LIGHTEST $light")
+[void]$h.AppendLine('#define PAL_SHINE 31')
+[void]$h.AppendLine()
+[void]$c.AppendLine('const unsigned short game_palette[32] = { ' + (($pal | ForEach-Object { '0x{0:X3}' -f $_ }) -join ', ') + ' };')
+[void]$c.AppendLine()
+function Ix($v) { if ($v -lt 0) { return 0 }; return $index[$v] }
+
+# --- Tiles: 16 lines of 5 plane words
 $words = New-Object Collections.Generic.List[int]
-for ($t = 0; $t -lt $tiles.Count; $t++) {
-    [void]$h.AppendLine("#define AT_$($tiles[$t].Name) $t")
-    foreach ($r in $tiles[$t].Rows) {
-        $p = @(0, 0, 0)
+$i = 0
+foreach ($k in $tiles.Keys) {
+    [void]$h.AppendLine("#define AT_$k $i"); $i++
+    $g = $tiles[$k]
+    for ($y = 0; $y -lt 16; $y++) {
+        $p = @(0, 0, 0, 0, 0)
         for ($x = 0; $x -lt 16; $x++) {
-            $ch = $r[$x]
-            $v = if ($ch -eq [char]'.') { 0 } else { [int][string]$ch }
-            for ($b = 0; $b -lt 3; $b++) { if ($v -band (1 -shl $b)) { $p[$b] = $p[$b] -bor (0x8000 -shr $x) } }
+            $v = Ix $g[$y, $x]
+            for ($b = 0; $b -lt 5; $b++) { if ($v -band (1 -shl $b)) { $p[$b] = $p[$b] -bor (0x8000 -shr $x) } }
         }
         $words.AddRange([int[]]$p)
     }
 }
 [void]$h.AppendLine("#define AT_COUNT $($tiles.Count)")
-[void]$h.AppendLine('extern const unsigned short tile_gfx[AT_COUNT][16 * 3];')
+[void]$h.AppendLine('#define PLANES 5')
+[void]$h.AppendLine('extern const unsigned short tile_gfx[AT_COUNT][16 * PLANES];')
 [void]$h.AppendLine()
-[void]$c.AppendLine('const unsigned short tile_gfx[AT_COUNT][16 * 3] = {')
-Words $c $words 12
+[void]$c.AppendLine('const unsigned short tile_gfx[AT_COUNT][16 * PLANES] = {')
+Words $c $words 10
 [void]$c.AppendLine('};')
 [void]$c.AppendLine()
 
-# ----------------------------------------------------------------- hero
-
-# The C64 art is 8 double-width pixels by up to 16 rows: 'o' the hood and
-# tunic, 'w' the face and hands, 'k' dark details. Doubled across, it's
-# the Spectrum's 16x16; Scale2x takes that to 32x32 with smoothed edges.
-$file = 'c64/data/sprites.txt'
-$lines = [IO.File]::ReadAllLines((Join-Path $root $file))
-$arts = @{}
-$cur = $null
-foreach ($l in $lines) {
-    $line = ($l -replace ';.*$', '').Trim()
-    if ($line -match '^\[(\w+)\]') { $cur = $Matches[1]; $arts[$cur] = New-Object Collections.Generic.List[string]; continue }
-    if ($cur -and $line -ne '') { $arts[$cur].Add($line) }
-}
-
-# Colours 1-15 of the attached sprites: 1 outline, 2-4 hood, 5-7 skin
-$ramps = @{ [char]'o' = @(2, 3, 4); [char]'w' = @(5, 6, 7) }
-
-function Hero-Grid($rows) {
-    # 16x16 of letters ('.' clear)
-    $g = New-Object 'char[,]' 16, 16
-    for ($y = 0; $y -lt 16; $y++) {
-        $row = if ($y -lt $rows.Count) { $rows[$y].PadRight(8, '.') } else { '........' }
-        for ($x = 0; $x -lt 16; $x++) { $g[$y, $x] = $row[[Math]::Floor($x / 2)] }
-    }
-    # Scale2x
-    $s = New-Object 'char[,]' 32, 32
-    for ($y = 0; $y -lt 16; $y++) {
-        for ($x = 0; $x -lt 16; $x++) {
-            $p = $g[$y, $x]
-            $a = if ($y -gt 0) { $g[($y - 1), $x] } else { $p }
-            $b = if ($x -lt 15) { $g[$y, ($x + 1)] } else { $p }
-            $cc = if ($x -gt 0) { $g[$y, ($x - 1)] } else { $p }
-            $d = if ($y -lt 15) { $g[($y + 1), $x] } else { $p }
-            $s[(2 * $y), (2 * $x)]         = if ($cc -eq $a -and $cc -ne $d -and $a -ne $b) { $a } else { $p }
-            $s[(2 * $y), (2 * $x + 1)]     = if ($a -eq $b -and $a -ne $cc -and $b -ne $d) { $b } else { $p }
-            $s[(2 * $y + 1), (2 * $x)]     = if ($d -eq $cc -and $d -ne $b -and $cc -ne $a) { $cc } else { $p }
-            $s[(2 * $y + 1), (2 * $x + 1)] = if ($b -eq $d -and $b -ne $a -and $d -ne $cc) { $d } else { $p }
-        }
-    }
-    return ,$s
-}
-
-# Outline the edge, light from above and the left, shade below and right
-function Hero-Colours($s, $mirror) {
-    $col = New-Object 'int[,]' 32, 32
-    function At($yy, $xx) { if ($yy -lt 0 -or $yy -gt 31 -or $xx -lt 0 -or $xx -gt 31) { [char]'.' } else { $s[$yy, $xx] } }
-    for ($y = 0; $y -lt 32; $y++) {
-        for ($x = 0; $x -lt 32; $x++) {
-            $p = $s[$y, $x]
-            $v = 0
-            if ($p -eq [char]'k') { $v = 1 }
-            elseif ($p -ne [char]'.') {
-                $up = At ($y - 1) $x; $dn = At ($y + 1) $x; $lf = At $y ($x - 1); $rt = At $y ($x + 1)
-                if ($up -eq [char]'.' -or $dn -eq [char]'.' -or $lf -eq [char]'.' -or $rt -eq [char]'.') { $v = 1 }
-                else {
-                    $r = $ramps[$p]
-                    if ($up -ne $p -or $lf -ne $p) { $v = $r[2] }
-                    elseif ($dn -ne $p -or $rt -ne $p -or (At ($y + 2) $x) -eq [char]'.') { $v = $r[0] }
-                    else { $v = $r[1] }
-                }
-            }
-            $col[$y, $(if ($mirror) { 31 - $x } else { $x })] = $v
-        }
-    }
-    return ,$col
-}
-
-# Four sprites: 0+1 attached for the left 16 columns, 2+3 for the right.
-# Each: two control words, then two data words a line, then two zeros.
-$heroNames = @('p_idle', 'p_blink', 'p_run_1', 'p_run_2', 'p_run_3', 'p_run_4', 'p_jump', 'p_fall', 'p_wall', 'p_dead')
+# --- Foxy: four sprites, 0+1 attached for the left 16 columns, 2+3 for
+# the right. Each: two control words, two data words a line, two zeros.
 $heroWords = New-Object Collections.Generic.List[int]
 $heroCount = 0
-foreach ($n in $heroNames) {
-    if (-not $arts.ContainsKey($n)) { Fail $file 1 "no [$n] art" }
-    $grid = Hero-Grid $arts[$n]
-    $versions = if ($n -eq 'p_dead') { @($false) } else { @($false, $true) }
-    foreach ($m in $versions) {
-        $name = 'HERO_' + $n.Substring(2).ToUpper() + $(if ($m) { '_L' } else { '' })
-        [void]$h.AppendLine("#define $name $heroCount")
-        $heroCount++
-        $col = Hero-Colours $grid $m
+foreach ($k in $fox.Keys) {
+    foreach ($m in $false, $true) {
+        [void]$h.AppendLine("#define HERO_$k$(if ($m) { '_L' } else { '' }) $heroCount"); $heroCount++
+        # (not "$g = if ...": PowerShell would unroll the grid into a list)
+        $g = $fox[$k]
+        if ($m) { $g = Mirror $g }
         for ($spr = 0; $spr -lt 4; $spr++) {
             $x0 = 16 * [Math]::Floor($spr / 2); $odd = $spr % 2
             $heroWords.Add(0); $heroWords.Add(0)
             for ($y = 0; $y -lt 32; $y++) {
                 $wa = 0; $wb = 0
                 for ($x = 0; $x -lt 16; $x++) {
-                    $v = $col[$y, ($x0 + $x)]
+                    $v = Ix $g[$y, ($x0 + $x)]
+                    if ($v) { $v -= 16 }
                     if ($odd) { $v = $v -shr 2 }
                     if ($v -band 1) { $wa = $wa -bor (0x8000 -shr $x) }
                     if ($v -band 2) { $wb = $wb -bor (0x8000 -shr $x) }
@@ -216,157 +282,50 @@ Words $c $heroWords 12
 [void]$c.AppendLine('};')
 [void]$c.AppendLine()
 
-# ----------------------------------------------------------- background
-
-# The back playfield. Indoors: a castle wall far behind, in big stones, with tall
-# arched windows that let the copper sky show through. 3 planes,
-# interleaved, 16 pixels of margin on the left for the scroll.
-$bgW = 464; $bgH = 304; $bgRow = $bgW / 8
-$px = New-Object 'byte[,]' $bgH, $bgW
-for ($y = 0; $y -lt $bgH; $y++) {
-    $course = [Math]::Floor($y / 16); $sy = $y % 16
-    for ($x = 0; $x -lt $bgW; $x++) {
-        $ox = ($x + $(if ($course % 2) { 16 } else { 0 })) % $bgW
-        $stone = [Math]::Floor($ox / 32); $sx = $ox % 32
-        $hash = (($stone * 73 + $course * 151) -bxor ($course * 7)) % 5
-        $base = if ($hash -eq 0) { 2 } elseif ($hash -eq 1) { 4 } else { 3 }
-        $v = $base
-        if ($sy -eq 15 -or $sx -eq 31) { $v = 1 }
-        elseif ($sy -eq 0 -or $sx -eq 0) { $v = [Math]::Min(5, $base + 1) }
-        elseif ($sy -eq 14 -or $sx -eq 30) { $v = 2 }
-        $px[$y, $x] = $v
-    }
-}
-# Windows: 32 wide, 64 tall with a round top, 2 rows of them
-foreach ($wy in 48, 192) {
-    for ($wx = 56; $wx + 40 -lt $bgW; $wx += 128) {
-        for ($y = $wy - 4; $y -lt $wy + 68; $y++) {
-            for ($x = $wx - 4; $x -lt $wx + 36; $x++) {
-                $dx = $x - ($wx + 16); $dy = $y - ($wy + 16)
-                $inArch = if ($y -lt $wy + 16) { $dx * $dx + $dy * $dy -le 16 * 16 } else { $x -ge $wx -and $x -lt $wx + 32 -and $y -lt $wy + 64 }
-                $inFrame = if ($y -lt $wy + 16) { $dx * $dx + $dy * $dy -le 20 * 20 } else { $x -ge $wx - 4 -and $x -lt $wx + 36 -and $y -lt $wy + 68 }
-                if ($inArch) {
-                    # glass: see-through, with a cross of lead
-                    $px[$y, $x] = if ($x -eq $wx + 15 -or $x -eq $wx + 16 -or $y -eq $wy + 34) { 1 } else { 0 }
-                } elseif ($inFrame) {
-                    $px[$y, $x] = if ($y -lt $wy + 2 -or $x -lt $wx - 2) { 5 } else { 4 }
-                }
-            }
-        }
-    }
-}
-# Outdoors: distant towers and battlements against the sky, which shows
-# through everywhere above them. A few windows are lit (colour 5).
-$outdoor = New-Object 'byte[,]' $bgH, $bgW
-$rnd = New-Object Random 7
-$x = 0
-while ($x -lt $bgW) {
-    $w = 40 + $rnd.Next(4) * 16
-    $top = 40 + $rnd.Next(10) * 12
-    for ($tx = $x; $tx -lt [Math]::Min($bgW, $x + $w); $tx++) {
-        $lx = $tx - $x
-        for ($ty = $top; $ty -lt $bgH; $ty++) {
-            $ly = $ty - $top
-            # Crenellations along the top
-            if ($ly -lt 8 -and ([Math]::Floor($lx / 8) % 2) -eq 1) { continue }
-            $v = if ($lx -lt 2) { 4 } elseif ($lx -ge $w - 2) { 1 } else { 2 + (($ty -shr 3) + ($lx -shr 4)) % 2 }
-            if (($ly % 16) -eq 15) { $v = 1 }
-            $outdoor[$ty, $tx] = $v
-        }
-    }
-    for ($wn = 0; $wn -lt 2; $wn++) {
-        $wy = $top + 24 + $rnd.Next(8) * 16; $wx = $x + 8 + $rnd.Next([Math]::Max(1, $w - 24))
-        for ($yy = $wy; $yy -lt [Math]::Min($bgH, $wy + 10); $yy++) {
-            for ($xx = $wx; $xx -lt [Math]::Min($bgW, $wx + 6); $xx++) { $outdoor[$yy, $xx] = 5 }
-        }
-    }
-    $x += $w + 8 + $rnd.Next(3) * 16
-}
-
-function Write-Bitmap($name, $pixels) {
-    $bytes = New-Object Collections.Generic.List[int]
-    for ($y = 0; $y -lt $bgH; $y++) {
-        for ($p = 0; $p -lt 3; $p++) {
-            for ($bx = 0; $bx -lt $bgRow; $bx++) {
-                $byte = 0
-                for ($k = 0; $k -lt 8; $k++) { if ($pixels[$y, ($bx * 8 + $k)] -band (1 -shl $p)) { $byte = $byte -bor (0x80 -shr $k) } }
-                $bytes.Add($byte)
-            }
-        }
-    }
-    [void]$c.AppendLine("unsigned char ${name}[BG_HEIGHT * BG_ROWBYTES * 3] __attribute__((section(`".MEMF_CHIP`"))) = {")
-    for ($i = 0; $i -lt $bytes.Count; $i += 24) {
-        $n = [Math]::Min(24, $bytes.Count - $i)
-        [void]$c.AppendLine('    ' + ((0..($n - 1) | ForEach-Object { $bytes[$i + $_] }) -join ',') + ',')
-    }
-    [void]$c.AppendLine('};')
-}
-[void]$h.AppendLine("#define BG_WIDTH $bgW")
-[void]$h.AppendLine("#define BG_HEIGHT $bgH")
-[void]$h.AppendLine("#define BG_ROWBYTES $bgRow")
-[void]$h.AppendLine('// Indoors and outdoors, in chip memory')
-[void]$h.AppendLine('extern unsigned char bg_indoor[BG_HEIGHT * BG_ROWBYTES * 3];')
-[void]$h.AppendLine('extern unsigned char bg_outdoor[BG_HEIGHT * BG_ROWBYTES * 3];')
-[void]$h.AppendLine()
-Write-Bitmap 'bg_indoor' $px
-Write-Bitmap 'bg_outdoor' $outdoor
-[void]$c.AppendLine()
-
-# -------------------------------------------------------------- enemies
-
-# Blitter objects ("bobs"), from the C64 art like the hero, drawn into the
-# front playfield in its colours: 1 outline, 6 the level's danger colour
-# (the spikes share it), 7 eyes and shine. Each line is 3 words (the third
-# is room for the blitter's shift) for each of 3 planes. Then a mask, laid
-# out the same, so one blit does all three planes.
-$bobColour = @{ [char]'k' = 1; [char]'o' = 6; [char]'w' = 7 }
-$bobNames = @(@('walker_1', $true), @('walker_2', $true), @('flyer_1', $false), @('flyer_2', $false), @('flyer_3', $false))
+# --- Enemies: blitter objects. Each line is the art's words plus one
+# spare (room for the blitter's shift), for each of 5 planes; then a mask
+# laid out the same, so one blit does all five.
 $bobWords = New-Object Collections.Generic.List[int]
-$bobCount = 0
-foreach ($bn in $bobNames) {
-    $grid = Hero-Grid $arts[$bn[0]]
-    $versions = if ($bn[1]) { @($false, $true) } else { @($false) }
-    foreach ($m in $versions) {
-        [void]$h.AppendLine("#define BOB_$($bn[0].ToUpper())$(if ($m) { '_L' } else { '' }) $bobCount")
-        $bobCount++
-        $data = New-Object Collections.Generic.List[int]
-        $mask = New-Object Collections.Generic.List[int]
-        for ($y = 0; $y -lt 32; $y++) {
-            $pw = @(0, 0, 0, 0, 0, 0); $mw = @(0, 0)
-            for ($x = 0; $x -lt 32; $x++) {
-                $sx = if ($m) { 31 - $x } else { $x }
-                $ch = $grid[$y, $sx]
-                if ($ch -eq [char]'.') { continue }
-                $near = $false
-                foreach ($d in @(@(-1, 0), @(1, 0), @(0, -1), @(0, 1))) {
-                    $ny = $y + $d[0]; $nx = $sx + $d[1]
-                    if ($ny -lt 0 -or $ny -gt 31 -or $nx -lt 0 -or $nx -gt 31 -or $grid[$ny, $nx] -eq [char]'.') { $near = $true }
-                }
-                $v = if ($near) { 1 } else { $bobColour[$ch] }
-                $word = [Math]::Floor($x / 16); $bit = 0x8000 -shr ($x % 16)
-                for ($p = 0; $p -lt 3; $p++) { if ($v -band (1 -shl $p)) { $pw[$p * 2 + $word] = $pw[$p * 2 + $word] -bor $bit } }
-                $mw[$word] = $mw[$word] -bor $bit
-            }
-            for ($p = 0; $p -lt 3; $p++) { $data.AddRange([int[]]@($pw[$p * 2], $pw[$p * 2 + 1], 0)) }
-            for ($p = 0; $p -lt 3; $p++) { $mask.AddRange([int[]]@($mw[0], $mw[1], 0)) }
+$bobInfo = New-Object Collections.Generic.List[string]
+foreach ($k in $bobs.Keys) {
+    $g = $bobs[$k].Art; $bh = $g.GetLength(0); $bw = $g.GetLength(1)
+    $wds = [Math]::Ceiling($bw / 16) + 1
+    [void]$h.AppendLine("#define BOB_$k $($bobInfo.Count)")
+    $bobInfo.Add("    { $($bobWords.Count), $wds, $bh, $($bobs[$k].X), $($bobs[$k].Y) },   // $k")
+    $data = New-Object Collections.Generic.List[int]; $mask = New-Object Collections.Generic.List[int]
+    for ($y = 0; $y -lt $bh; $y++) {
+        $pw = New-Object 'int[]' (5 * $wds); $mw = New-Object 'int[]' $wds
+        for ($x = 0; $x -lt $bw; $x++) {
+            $v = Ix $g[$y, $x]
+            if (-not $v) { continue }
+            $wd = [Math]::Floor($x / 16); $bit = 0x8000 -shr ($x % 16)
+            for ($b = 0; $b -lt 5; $b++) { if ($v -band (1 -shl $b)) { $pw[$b * $wds + $wd] = $pw[$b * $wds + $wd] -bor $bit } }
+            $mw[$wd] = $mw[$wd] -bor $bit
         }
-        $bobWords.AddRange($data); $bobWords.AddRange($mask)
+        $data.AddRange($pw)
+        for ($b = 0; $b -lt 5; $b++) { $mask.AddRange($mw) }
     }
+    $bobWords.AddRange($data); $bobWords.AddRange($mask)
 }
-[void]$h.AppendLine("#define BOB_COUNT $bobCount")
-[void]$h.AppendLine('#define BOB_WORDS (32 * 3 * 3)       // the data, or the mask')
-[void]$h.AppendLine('// For each: the data, then the mask. In chip memory, for the blitter.')
-[void]$h.AppendLine('extern const unsigned short bob_gfx[BOB_COUNT][2][BOB_WORDS];')
+[void]$h.AppendLine("#define BOB_COUNT $($bobInfo.Count)")
+[void]$h.AppendLine('// For each: where its data starts (the mask follows, the same size), its')
+[void]$h.AppendLine('// width in words (with one spare), height, and offset on the 32x32 box')
+[void]$h.AppendLine('typedef struct { unsigned short offset; unsigned char words, height; signed char x, y; } bob_t;')
+[void]$h.AppendLine('extern const bob_t bob_info[BOB_COUNT];')
+[void]$h.AppendLine('extern const unsigned short bob_gfx[];')
 [void]$h.AppendLine()
-[void]$c.AppendLine('const unsigned short bob_gfx[BOB_COUNT][2][BOB_WORDS] __attribute__((section(".INCBIN.MEMF_CHIP"))) = {')
-Words $c $bobWords 18
+[void]$c.AppendLine('const bob_t bob_info[BOB_COUNT] = {')
+foreach ($l in $bobInfo) { [void]$c.AppendLine($l) }
 [void]$c.AppendLine('};')
-
+[void]$c.AppendLine('const unsigned short bob_gfx[] __attribute__((section(".INCBIN.MEMF_CHIP"))) = {')
+Words $c $bobWords 20
+[void]$c.AppendLine('};')
+foreach ($b in $images.Values) { $b.Dispose() }
 
 [void]$h.AppendLine('#endif')
 [IO.File]::WriteAllText((Join-Path $gen 'gfx_data.h'), $h.ToString())
 [IO.File]::WriteAllText((Join-Path $gen 'gfx_data.c'), $c.ToString())
-Write-Host "build_amiga: $($tiles.Count) tiles, $heroCount hero frames, $bobCount enemy frames, backgrounds ${bgW}x$bgH"
+Write-Host "build_amiga: $($tiles.Count) tiles, $heroCount Foxy frames, $($bobInfo.Count) enemy frames, $(31 - $free.Count + [Math]::Min($free.Count, $ranked.Count)) colours ($merged merged)"
 
 # ---------------------------------------------------------------- sound
 
@@ -512,6 +471,11 @@ if ($LASTEXITCODE) { exit 1 }
 $flags = @('-m68000', '-Ofast', '-nostdlib', '-fomit-frame-pointer', '-fno-tree-loop-distribution', '-flto', '-fwhole-program',
            '-fno-exceptions', '-ffunction-sections', '-fdata-sections', '-Wall', '-Wno-unused-function', '-Wno-missing-braces', '-Wno-volatile-register-var',
            "-DDEBUG_START=$Start",
+           # Foxy's head is 5 pixels (at 1x) below the top of the sprite, so
+           # the hurt box starts 6 down (3 elsewhere). The collision box starts
+           # only 2 down: any lower and The Wine Cellar's gem is out of reach.
+           # tools/check_levels.ps1 -Amiga solves the levels with these.
+           '-DPLAYER_TOP=2', '-DPLAYER_HURT_TOP=6',
            "-I$Src", "-I$(Join-Path $root 'src')", "-I$(Join-Path $root 'build/gen')", "-I$gen", "-I$support")
 & m68k-amiga-elf-gcc @flags '-Wl,--emit-relocs,--gc-sections,-Ttext=0' @sources $asmObj -o $elf
 if ($LASTEXITCODE) { exit 1 }

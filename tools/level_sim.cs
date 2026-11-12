@@ -24,7 +24,10 @@ public class LevelSim
 
     // src/player.h
     const int HB_X = 3, HB_W = 10, HEIGHT = 16;
-    const int HURT_LEFT = 4, HURT_RIGHT = 11, HURT_TOP = 3, HURT_BOTTOM = 15;
+    const int HURT_LEFT = 4, HURT_RIGHT = 11, HURT_BOTTOM = 15;
+    // PLAYER_TOP and PLAYER_HURT_TOP: the Amiga's build sets them lower
+    // (tools/build_amiga.ps1), and check_levels.ps1 -Amiga sets them here
+    public static int TOP = 0, HURT_TOP = 3;
     const int WALL_LEFT = 1, WALL_RIGHT = 2;
 
     // src/player.c
@@ -164,9 +167,11 @@ public class LevelSim
 
     bool SolidColumn(int x, int top)
     {
-        int row = (top & 0xF8) >> 3, col = (x & 0xFF) >> 3;
-        if (((At(row, col) | At(row + 1, col)) & TILE_SOLID) != 0) return true;
-        if ((top & 7) != 0 && (At(row + 2, col) & TILE_SOLID) != 0) return true;
+        int col = (x & 0xFF) >> 3;
+        int y = (top + TOP) & 0xFF;
+        int last = ((top + HEIGHT - 1) & 0xFF) >> 3;
+        for (int row = y >> 3; row <= last; row++)
+            if ((At(row, col) & TILE_SOLID) != 0) return true;
         return false;
     }
 
@@ -321,8 +326,8 @@ public class LevelSim
                 p.jumping = 0;
             }
         } else {
-            if ((RowFlags(py, left) & TILE_SOLID) != 0) {
-                ny = Fix((py & 0xF8) + 8);
+            if ((RowFlags((py + TOP) & 0xFF, left) & TILE_SOLID) != 0) {
+                ny = Fix((((py + TOP) & 0xFF) & 0xF8) + 8 - TOP);
                 p.vy = 0;
                 p.jumping = 0;
             }
@@ -360,7 +365,8 @@ public class LevelSim
         return ev;
     }
 
-    // touching_trophy() in main.c: any cell under the collision box
+    // touching_trophy() in main.c: any cell under the collision box, from
+    // the top of the sprite (on the Amiga too, where the box is shorter)
     bool TouchingTrophy(ref State p)
     {
         int left = (Whole(p.x) + HB_X) & 0xFF;

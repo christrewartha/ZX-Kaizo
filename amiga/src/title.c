@@ -1,7 +1,7 @@
-// The title and ending screens. They borrow the game's display: the logo
-// and text are drawn into the front playfield, the towers drift slowly
-// behind, the copper paints the sky and shines the logo, and the hero runs
-// back and forth along the bottom.
+// The title and ending screens. They borrow the game's display: a morning
+// sky, a strip of grass along the bottom, the logo and text drawn into the
+// playfield (the copper shines the logo), and Foxy running back and forth
+// with an opossum on Foxy's tail.
 #include "gcc8_c_support.h"
 #include "title.h"
 #include "video.h"
@@ -9,21 +9,28 @@
 #include "hw.h"
 #include "input.h"
 #include "sound.h"
+#include "roomgfx.h"
 #include "gfx_data.h"
 
+// The camera looks at the bottom of the world, where the grass is
+#define CAM_Y       CAM_MAX_Y
+#define GROUND_Y    (WORLD_H - 32 - CAM_Y)      // on the screen
+
 #define LOGO_SCALE  4
-#define LOGO_Y      36
+#define LOGO_Y      20
 #define LOGO_H      (8 * LOGO_SCALE)
-#define HERO_Y      176
 #define FADE_STEPS  16
 
 static int hero_x, hero_dir;
 
-// Draw text from the system font, each pixel a scale x scale block. The
-// big logo gets a bevel (light along its top edges) and a drop shadow.
+// Draw text from the system font into the world, each pixel a scale x
+// scale block, over a dark shadow. The logo also gets a lit top edge.
 static void draw_text(int x, int y, const char *text, int scale, unsigned char colour, int bevel) {
-    for (int pass = bevel ? 0 : 1; pass < 2; pass++) {
-        int off = pass ? 0 : 3;
+    int shadow = scale > 1 ? scale - 1 : 1;
+
+    y += CAM_Y;
+    for (int pass = 0; pass < 2; pass++) {
+        int off = pass ? 0 : shadow;
         for (const char *t = text; *t; t++) {
             const unsigned char *g = hud_glyph(*t);
             int cx = x + (t - text) * 8 * scale;
@@ -34,8 +41,8 @@ static void draw_text(int x, int y, const char *text, int scale, unsigned char c
                     for (int py = 0; py < scale; py++) {
                         for (int px = 0; px < scale; px++) {
                             unsigned char col = colour;
-                            if (!pass) col = 1;                         // shadow
-                            else if (bevel && top && py == 0) col = 7;  // lit edge
+                            if (!pass) col = PAL_DARKEST;
+                            else if (bevel && top && py == 0) col = PAL_LIGHTEST;
                             video_plot(cx + c * scale + px + off, y + r * scale + py + off, col);
                         }
                     }
@@ -51,26 +58,29 @@ static void centre(int y, const char *text, int scale, unsigned char colour) {
 
 static void setup(void) {
     video_hero(0, 0, -1);
-    video_clear_world();
     video_theme_title(LOGO_Y, LOGO_H);
     video_brightness(0);
-    draw_text((VIEW_W - (int)(sizeof(GAME_NAME) - 1) * 8 * LOGO_SCALE) / 2, LOGO_Y, GAME_NAME, LOGO_SCALE, 5, 1);
+    room_title();
+    draw_text((VIEW_W - (int)(sizeof(GAME_NAME) - 1) * 8 * LOGO_SCALE) / 2, LOGO_Y, GAME_NAME, LOGO_SCALE, PAL_SHINE, 1);
     hero_x = -32;
     hero_dir = 1;
 }
 
-// One frame of the backdrop: the towers drift, the hero runs
+// One frame of the scene: Foxy runs, and the opossum gives chase
 static void animate(UWORD t) {
-    static const unsigned char run[4] = { HERO_RUN_1, HERO_RUN_2, HERO_RUN_3, HERO_RUN_4 };
-    int bg_x = t & 0x7f;
+    static const unsigned char run[6] = { HERO_RUN_1, HERO_RUN_2, HERO_RUN_3, HERO_RUN_4, HERO_RUN_5, HERO_RUN_6 };
+    int chaser;
 
-    if (bg_x > 0x3f) bg_x = 0x80 - bg_x;
-    video_scroll_both(0, 0, bg_x, 16);
-
+    video_scroll(0, CAM_Y);
     hero_x += hero_dir * 2;
-    if (hero_x > VIEW_W + 16) hero_dir = -1;
-    else if (hero_x < -48) hero_dir = 1;
-    video_hero(hero_x, HERO_Y, run[(hero_x >> 3) & 3] + (hero_dir < 0));
+    if (hero_x > VIEW_W + 96) hero_dir = -1;
+    else if (hero_x < -96) hero_dir = 1;
+    video_hero(hero_x, GROUND_Y - 32, run[(t >> 2) % 6] + (hero_dir < 0));
+
+    chaser = hero_x - hero_dir * 56;
+    video_bobs_begin();
+    video_bob(chaser, WORLD_H - 64, BOB_WALKER_1 + ((t >> 2) % 6) * 2 + (hero_dir > 0));
+    video_bobs_end();
 }
 
 // Fade in, then wait for fire (let go of any held first), then fade out
@@ -105,10 +115,10 @@ static void wait_for_fire(const char *top, const char *prompt) {
 void title_screen(void) {
     sound_restart();
     setup();
-    centre(LOGO_Y + LOGO_H + 22, "A KAIZO PLATFORMER", 2, 6);
-    centre(LOGO_Y + LOGO_H + 52, "15 LEVELS. NO MERCY.", 1, 7);
-    centre(LOGO_Y + LOGO_H + 68, "JOYSTICK IN PORT 2", 1, 4);
-    wait_for_fire("A HAUNTED CASTLE AWAITS", "PRESS FIRE TO START");
+    centre(LOGO_Y + LOGO_H + 20, "A KAIZO PLATFORMER", 2, PAL_LIGHTEST);
+    centre(LOGO_Y + LOGO_H + 50, "15 LEVELS. NO MERCY.", 1, PAL_LIGHTEST);
+    centre(LOGO_Y + LOGO_H + 66, "JOYSTICK IN PORT 2", 1, PAL_SHINE);
+    wait_for_fire("ART: SUNNY LAND BY ANSIMUZ", "PRESS FIRE TO START");
 }
 
 static char *number(char *out, unsigned int n, int digits) {
@@ -124,14 +134,14 @@ void ending_screen(unsigned int deaths, unsigned char trophies, unsigned char co
     char line[24], num[5];
 
     setup();
-    centre(LOGO_Y + LOGO_H + 22, "YOU ESCAPED!", 2, 6);
+    centre(LOGO_Y + LOGO_H + 20, "YOU MADE IT!", 2, PAL_LIGHTEST);
     memcpy(line, "DEATHS ", 7);
     memcpy(line + 7, number(num, deaths > 9999 ? 9999 : deaths, 4), 5);
-    centre(LOGO_Y + LOGO_H + 52, line, 1, 7);
-    memcpy(line, "TROPHIES ", 9);
-    number(line + 9, trophies, 2);
-    line[11] = '/';
-    number(line + 12, count, 2);
-    centre(LOGO_Y + LOGO_H + 68, line, 1, 6);
-    wait_for_fire(trophies == count ? "EVERY TROPHY! A TRUE MASTER." : "THE CASTLE IS BEHIND YOU", "PRESS FIRE");
+    centre(LOGO_Y + LOGO_H + 50, line, 1, PAL_LIGHTEST);
+    memcpy(line, "GEMS ", 5);
+    number(line + 5, trophies, 2);
+    line[7] = '/';
+    number(line + 8, count, 2);
+    centre(LOGO_Y + LOGO_H + 66, line, 1, PAL_SHINE);
+    wait_for_fire(trophies == count ? "EVERY GEM! A TRUE MASTER." : "THE STORM IS BEHIND YOU", "PRESS FIRE");
 }

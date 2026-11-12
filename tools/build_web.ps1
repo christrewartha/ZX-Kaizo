@@ -146,12 +146,18 @@ Get-ChildItem (Join-Path $emu 'js') -Filter '*.map' | Remove-Item
 foreach ($rom in 'aros-rom-20260820.bin', 'aros-ext-20260820.bin') {
     Copy-Item (Join-Path $cache "roms/$rom") (Join-Path $emu 'roms')
 }
-Copy-Item (Join-Path $root 'docs/kaizamigo.png') $amiga
+# The poster shows Sunny Land's art, so it lives with the art in assets/
+# (kept out of git); without it, the old one from docs/
+$poster = Join-Path $root 'assets/kaizamigo.png'
+if (-not (Test-Path $poster)) { $poster = Join-Path $root 'docs/kaizamigo.png' }
+# Named by its contents, like the disk, so browsers don't keep an old one
+$posterName = "kaizamigo-$((Get-FileHash $poster -Algorithm SHA256).Hash.Substring(0, 12).ToLower()).png"
+Copy-Item $poster (Join-Path $amiga $posterName)
 $hash = (Get-FileHash $adf -Algorithm SHA256).Hash.Substring(0, 12).ToLower()
 $adfName = "kaizamigo-$hash.adf"
 Copy-Item $adf (Join-Path $amiga $adfName)
 $html = [IO.File]::ReadAllText((Join-Path $root 'web/amiga.html'))
-$html = $html.Replace('{{ADF}}', $adfName)
+$html = $html.Replace('{{ADF}}', $adfName).Replace('{{POSTER}}', $posterName)
 [IO.File]::WriteAllText((Join-Path $amiga 'index.html'), $html)
 
 Write-Host "Wrote $out ($tapName, c64/$prgName, amiga/$adfName)"

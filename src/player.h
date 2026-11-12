@@ -9,10 +9,19 @@
 #define PLAYER_HB_W 10
 #define PLAYER_HEIGHT 16
 
+// The box's top, below the sprite's. The Amiga's Foxy is shorter than the
+// sprite, so its build sets these lower (see tools/build_amiga.ps1); still
+// more than a cell tall, so the same gaps fit.
+#ifndef PLAYER_TOP
+#define PLAYER_TOP 0
+#endif
+
 // Smaller box for getting hurt, so grazes don't kill
 #define PLAYER_HURT_LEFT   4
 #define PLAYER_HURT_RIGHT  11
+#ifndef PLAYER_HURT_TOP
 #define PLAYER_HURT_TOP    3
+#endif
 #define PLAYER_HURT_BOTTOM 15
 
 // Which side a wall is touching

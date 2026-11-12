@@ -11,118 +11,89 @@
 
 #define REG(r)      ((UWORD)offsetof(struct Custom, r))
 
-// Front playfield: the world with 16 pixels of margin either side for the
-// scroll, 3 planes interleaved (each line is plane 0, 1, 2)
-#define PF1_ROWBYTES ((16 + WORLD_W + 16) / 8)
-#define PF1_STRIDE   (PF1_ROWBYTES * 3)
-#define PF1_SIZE     (PF1_STRIDE * WORLD_H)
-// Back playfield: the generated wall or towers (gfx_data.c)
-#define PF2_STRIDE   (BG_ROWBYTES * 3)
+// The world, with 16 pixels of margin either side for the scroll, its 5
+// planes interleaved (each line is plane 0, 1, 2, 3, 4)
+#define ROWBYTES    ((16 + WORLD_W + 16) / 8)
+#define STRIDE      (ROWBYTES * PLANES)
+#define WORLD_SIZE  ((ULONG)STRIDE * WORLD_H)
 
 // Each line fetches 21 words: one more than the screen, for the scroll
-#define FETCH_BYTES  42
+#define FETCH_BYTES 42
 
-#define DISPLAY_TOP  0x2c       // first line of the screen
-#define HUD_LINE     (DISPLAY_TOP + VIEW_H)
+#define DISPLAY_TOP 0x2c        // first line of the screen
+#define HUD_LINE    (DISPLAY_TOP + VIEW_H)
 #define COPPER_WORDS 2000
 
 static UBYTE *worlds[2];        // double buffered
 static UBYTE front, back;       // which is shown, which is drawn into
 static UWORD *copper;
 static UWORD *cop_sprites;      // the 8 sprite pointer moves
-static UWORD *cop_planes;       // the 6 bitplane pointer moves
+static UWORD *cop_planes;       // the 5 bitplane pointer moves
 static UWORD *cop_bplcon1;
-static UWORD *cop_sky[VIEW_H];  // colour 0's value, for each line
-static UWORD *cop_sky_top;      // ...and above the screen
-static UWORD *cop_line5[VIEW_H]; // colour 5 for each line (the titles logo shines)
-static UWORD *cop_colours;      // colours 1-15 (the HUD changes some)
+static UWORD *cop_colours;      // colours 1-31 (the HUD changes some)
+static UWORD *cop_sky_top;      // colour 0 above the screen...
+static UWORD *cop_sky[VIEW_H];  // ...and on each line
+static UWORD *cop_shine[VIEW_H]; // colour 31 on each line (the title's logo)
 
 static UWORD null_sprite[2] __attribute__((section(".MEMF_CHIP")));
 
 #define MAX_BOBS 4
 
-// Where enemies were drawn in each buffer, in cells, to put back
-typedef struct { UBYTE c0, r0, c1, r1; } cells_t;
-static cells_t drawn[2][MAX_BOBS];
+// Where enemies were drawn in each buffer, and what was there before (the
+// blitter saves it, and puts it back next time round)
+typedef struct { UBYTE *dst; UWORD *save; UWORD words, height; } drawn_t;
+static drawn_t drawn[2][MAX_BOBS];
 static UBYTE drawn_count[2];
 
-// ------------------------------------------------------------- themes
+// -------------------------------------------------------------- themes
 
 typedef struct {
-    UWORD tiles[8];             // front playfield 1-7: 6 is the danger colour
-    UWORD wall[8];              // back playfield 1-7
     UWORD sky[4];               // gradient, top to bottom
-    UBYTE outdoor;              // towers rather than the castle wall
+    UBYTE tint;                 // the art's brightness, 0-16 (dusk, night...)
+    UBYTE outdoor;              // earth and grass, or the ruins
     UBYTE storm;                // lightning
 } theme_t;
 
-// One per level, in world.txt order: down in the castle, then out on the
-// towers, then up into the storm
+// One per level, in world.txt order: down in the ruins, then out in the
+// sun, through dusk and night, and up into the storm
 static const theme_t themes[] = {
-    // The Kitchen: warm brick, dusk through the windows
-    { { 0, 0x210, 0x421, 0x732, 0xa53, 0xd85, 0xc3b, 0xfe9 }, { 0, 0x100, 0x211, 0x322, 0x433, 0x544, 0, 0 },
-      { 0x102, 0x214, 0x625, 0xb63 }, 0, 0 },
-    // The Cellar Passage: damp grey-brown
-    { { 0, 0x111, 0x322, 0x543, 0x765, 0x987, 0xd43, 0xfdb }, { 0, 0x000, 0x111, 0x211, 0x222, 0x333, 0, 0 },
-      { 0x001, 0x012, 0x123, 0x234 }, 0, 0 },
-    // The Crypt: cold stone, a sickly glow
-    { { 0, 0x111, 0x333, 0x555, 0x777, 0x9a9, 0x6c4, 0xdfd }, { 0, 0x000, 0x111, 0x121, 0x232, 0x343, 0, 0 },
-      { 0x000, 0x011, 0x022, 0x143 }, 0, 0 },
-    // The Wine Cellar
-    { { 0, 0x200, 0x401, 0x613, 0x834, 0xa56, 0xd6e, 0xfcd }, { 0, 0x100, 0x201, 0x302, 0x413, 0x524, 0, 0 },
-      { 0x101, 0x202, 0x413, 0x724 }, 0, 0 },
-    // The Chimney Stack: soot, and fire below
-    { { 0, 0x100, 0x221, 0x332, 0x443, 0x664, 0xf60, 0xfd4 }, { 0, 0x000, 0x110, 0x210, 0x321, 0x431, 0, 0 },
-      { 0x200, 0x410, 0x830, 0xf80 }, 0, 0 },
-    // The Belfry: old wood and bronze
-    { { 0, 0x210, 0x431, 0x642, 0x863, 0xb95, 0xc4c, 0xfeb }, { 0, 0x100, 0x210, 0x320, 0x431, 0x542, 0, 0 },
-      { 0x013, 0x135, 0x358, 0x69b }, 0, 0 },
-    // The Crow's Nest: out under the night sky
-    { { 0, 0x112, 0x334, 0x556, 0x778, 0x99a, 0xd4d, 0xffe }, { 0, 0x001, 0x112, 0x223, 0x334, 0xdb6, 0, 0 },
-      { 0x001, 0x013, 0x136, 0x358 }, 1, 0 },
-    // Rooftops: red tiles at sunset
-    { { 0, 0x211, 0x522, 0x833, 0xb54, 0xd86, 0x4ce, 0xffe }, { 0, 0x101, 0x212, 0x323, 0x434, 0xfc6, 0, 0 },
-      { 0x113, 0x336, 0x957, 0xf96 }, 1, 0 },
-    // The Clock Tower
-    { { 0, 0x112, 0x445, 0x667, 0x99a, 0xccd, 0xe52, 0xfff }, { 0, 0x001, 0x112, 0x223, 0x334, 0xdb6, 0, 0 },
-      { 0x003, 0x115, 0x337, 0x559 }, 1, 0 },
-    // The Battlements: moonlight
-    { { 0, 0x111, 0x334, 0x556, 0x889, 0xaab, 0xe4e, 0xfff }, { 0, 0x012, 0x123, 0x234, 0x345, 0xec7, 0, 0 },
-      { 0x024, 0x147, 0x38a, 0x7bd }, 1, 0 },
-    // The Gargoyle Ledge: clouds close in
-    { { 0, 0x111, 0x333, 0x455, 0x677, 0x899, 0x8e4, 0xeff }, { 0, 0x111, 0x222, 0x333, 0x444, 0x998, 0, 0 },
-      { 0x111, 0x222, 0x334, 0x556 }, 1, 0 },
-    // The Spire: the storm begins
-    { { 0, 0x012, 0x124, 0x236, 0x458, 0x68b, 0xee4, 0xfff }, { 0, 0x001, 0x012, 0x123, 0x234, 0x885, 0, 0 },
-      { 0x000, 0x012, 0x124, 0x236 }, 1, 1 },
-    // The Weathervane
-    { { 0, 0x111, 0x333, 0x556, 0x778, 0xaab, 0xfc3, 0xfff }, { 0, 0x001, 0x111, 0x212, 0x323, 0x885, 0, 0 },
-      { 0x000, 0x101, 0x213, 0x325 }, 1, 1 },
-    // The Lightning Rod
-    { { 0, 0x012, 0x124, 0x247, 0x479, 0x7ac, 0xff6, 0xfff }, { 0, 0x000, 0x011, 0x122, 0x233, 0x885, 0, 0 },
-      { 0x000, 0x002, 0x014, 0x126 }, 1, 1 },
-    // Eye of the Storm
-    { { 0, 0x102, 0x214, 0x426, 0x648, 0x96b, 0xfe4, 0xfff }, { 0, 0x101, 0x202, 0x313, 0x424, 0x885, 0, 0 },
-      { 0x000, 0x102, 0x305, 0x518 }, 1, 1 },
+    { { 0x101, 0x212, 0x323, 0x434 }, 16, 0, 0 },     // The Kitchen
+    { { 0x001, 0x112, 0x223, 0x334 }, 15, 0, 0 },     // The Cellar Passage
+    { { 0x000, 0x011, 0x122, 0x233 }, 14, 0, 0 },     // The Crypt
+    { { 0x101, 0x202, 0x313, 0x424 }, 15, 0, 0 },     // The Wine Cellar
+    { { 0x200, 0x410, 0x720, 0xa40 }, 15, 0, 0 },     // The Chimney Stack: fire below
+    { { 0x112, 0x224, 0x346, 0x568 }, 15, 0, 0 },     // The Belfry
+    { { 0x29f, 0x4cf, 0x8ef, 0xcff }, 16, 1, 0 },     // The Crow's Nest: out in the sun
+    { { 0x34a, 0x96b, 0xe96, 0xfd8 }, 15, 1, 0 },     // Rooftops: sunset
+    { { 0x2af, 0x4df, 0x9ef, 0xdff }, 16, 1, 0 },     // The Clock Tower
+    { { 0x125, 0x348, 0x76a, 0xb8a }, 13, 1, 0 },     // The Battlements: dusk
+    { { 0x678, 0x899, 0xaab, 0xccd }, 14, 1, 0 },     // The Gargoyle Ledge: mist
+    { { 0x000, 0x112, 0x224, 0x336 }, 11, 1, 1 },     // The Spire: the storm
+    { { 0x000, 0x101, 0x213, 0x325 }, 11, 1, 1 },     // The Weathervane
+    { { 0x000, 0x002, 0x014, 0x126 }, 11, 1, 1 },     // The Lightning Rod
+    { { 0x000, 0x102, 0x305, 0x518 }, 11, 1, 1 },     // Eye of the Storm
 };
 #define THEME_COUNT (sizeof(themes) / sizeof(themes[0]))
 
-// The hero (colours 17-23): outline, hood dark/mid/light, skin dark/mid/light
-static const UWORD hero_colours[3][7] = {
-    { 0x112, 0x146, 0x28a, 0x6cd, 0xa64, 0xdb8, 0xfed },
-    { 0x445, 0xbbb, 0xddd, 0xfff, 0xbbb, 0xddd, 0xfff },    // white flash
-    { 0x200, 0x600, 0xa00, 0xf44, 0x822, 0xb44, 0xf88 },    // red
-};
+// The title: a clear morning
+static const theme_t title_theme = { { 0x29f, 0x4cf, 0x8ef, 0xcff }, 16, 1, 0 };
+static const UWORD logo_shine[4] = { 0xffe, 0xfd6, 0xe84, 0xa4a };
 
 // Lightning: the sky flashes through these
 static const UWORD flash_sky[4] = { 0x8af, 0xbdf, 0xdef, 0xfff };
 
 static const theme_t *theme = themes;
 static UBYTE brightness = 16;
-static UBYTE hero_tint;
 static UBYTE flash;             // frames of lightning left
 static UWORD next_strike;
-static UBYTE *background;
+
+// The sky (normal, and lit by lightning) and colour 31 down the screen,
+// and every colour at every brightness, so a fade step is only a copy
+static UWORD sky_lines[2][VIEW_H];
+static UWORD shine_lines[VIEW_H];
+static UWORD sky_faded[17][VIEW_H], shine_faded[17][VIEW_H];
+static UWORD palette_faded[17][32];
+static UBYTE scaled[17][16];    // scaled[b][v]: v (0-15) at brightness b
 
 static UWORD rnd_state = 0x5eed;
 static UWORD rnd(void) {
@@ -132,33 +103,10 @@ static UWORD rnd(void) {
     return rnd_state;
 }
 
-// Scale a colour by the brightness (0-16)
-// The skys gradient, worked out once a level (normal and lit by lightning),
-// and a table for dimming: scaled[b][v] is v (0-15) at brightness b (0-16).
-// Fades and lightning then cost a few lookups a line, not divisions.
-static UWORD sky_lines[2][VIEW_H];
-static UWORD line5[VIEW_H];
-// ...and both at every brightness, so a fade step is only a copy
-static UWORD sky_faded[17][VIEW_H], line5_faded[17][VIEW_H];
-static UBYTE scaled[17][16];
-
 static UWORD dim_to(UWORD c, UBYTE b) {
     const UBYTE *t = scaled[b];
 
     return t[(c >> 8) & 15] << 8 | t[(c >> 4) & 15] << 4 | t[c & 15];
-}
-
-static UWORD dim(UWORD c) {
-    return dim_to(c, brightness);
-}
-
-static void prepare_fades(void) {
-    for (UBYTE b = 0; b <= 16; b++) {
-        for (UWORD y = 0; y < VIEW_H; y++) {
-            sky_faded[b][y] = dim_to(sky_lines[0][y], b);
-            line5_faded[b][y] = dim_to(line5[y], b);
-        }
-    }
 }
 
 static UWORD blend(UWORD a, UWORD b, UWORD t, UWORD n) {
@@ -171,38 +119,46 @@ static UWORD blend(UWORD a, UWORD b, UWORD t, UWORD n) {
     return out;
 }
 
+// Three bands of gradient down the screen
+static void gradient(UWORD *lines, const UWORD *keys, int top, int height) {
+    for (int y = 0; y < height; y++) {
+        UWORD band = y * 3 / height, at = y - band * height / 3;
+        lines[top + y] = blend(keys[band], keys[band + 1], at, height / 3 + 1);
+    }
+}
+
+static void prepare_fades(void) {
+    for (UBYTE b = 0; b <= 16; b++) {
+        for (UWORD y = 0; y < VIEW_H; y++) {
+            sky_faded[b][y] = dim_to(sky_lines[0][y], b);
+            shine_faded[b][y] = dim_to(shine_lines[y], b);
+        }
+        for (int i = 1; i < 32; i++) palette_faded[b][i] = dim_to(game_palette[i], b * theme->tint >> 4);
+    }
+}
+
 static void apply_colours(void) {
     // A lightning strike flickers: lit, dark, lit, dark (only ever in play,
     // at full brightness)
     const UWORD *sky = (flash & 2) ? sky_lines[1] : sky_faded[brightness];
-    const UWORD *l5 = line5_faded[brightness];
+    const UWORD *shine = shine_faded[brightness];
+    const UWORD *pal = palette_faded[(flash & 2) ? 16 : brightness];
 
-    for (int i = 1; i < 8; i++) {
-        cop_colours[(i - 1) * 2 + 1] = dim(theme->tiles[i]);
-        cop_colours[(i + 7) * 2 + 1] = dim(theme->wall[i]);
-    }
-    for (int i = 0; i < 7; i++) custom->color[17 + i] = dim(hero_colours[hero_tint][i]);
-
+    for (int i = 1; i < 32; i++) cop_colours[(i - 1) * 2 + 1] = pal[i];
     *cop_sky_top = sky[0];
     for (UWORD y = 0; y < VIEW_H; y++) {
         *cop_sky[y] = sky[y];
-        *cop_line5[y] = l5[y];
+        *cop_shine[y] = shine[y];
     }
 }
 
 static void set_theme(const theme_t *t) {
     theme = t;
-    background = theme->outdoor ? bg_outdoor : bg_indoor;
     flash = 0;
     next_strike = 120;
-
-    // Three bands of gradient down the screen
-    for (UWORD y = 0; y < VIEW_H; y++) {
-        UWORD band = y * 3 / VIEW_H, at = y - band * VIEW_H / 3;
-        sky_lines[0][y] = blend(theme->sky[band], theme->sky[band + 1], at, VIEW_H / 3 + 1);
-        sky_lines[1][y] = blend(flash_sky[band], flash_sky[band + 1], at, VIEW_H / 3 + 1);
-        line5[y] = theme->tiles[5];
-    }
+    gradient(sky_lines[0], theme->sky, 0, VIEW_H);
+    gradient(sky_lines[1], flash_sky, 0, VIEW_H);
+    for (UWORD y = 0; y < VIEW_H; y++) shine_lines[y] = game_palette[PAL_SHINE];
 }
 
 void video_theme(unsigned char level) {
@@ -211,19 +167,13 @@ void video_theme(unsigned char level) {
     apply_colours();
 }
 
-// The title: night over the towers, and a logo in gold shading to purple
-static const theme_t title_theme = {
-    { 0, 0x102, 0x325, 0x649, 0x96c, 0xfd6, 0xf8c, 0xfff }, { 0, 0x001, 0x112, 0x223, 0x334, 0xdb6, 0, 0 },
-    { 0x001, 0x013, 0x136, 0x48a }, 1, 0
-};
-static const UWORD logo_shine[4] = { 0xffe, 0xfd6, 0xe84, 0xa4a };
+int video_outdoors(void) {
+    return theme->outdoor;
+}
 
 void video_theme_title(int logo_top, int logo_height) {
     set_theme(&title_theme);
-    for (int y = 0; y < logo_height && logo_top + y < VIEW_H; y++) {
-        UWORD band = y * 3 / logo_height, at = y - band * logo_height / 3;
-        line5[logo_top + y] = blend(logo_shine[band], logo_shine[band + 1], at, logo_height / 3 + 1);
-    }
+    gradient(shine_lines, logo_shine, logo_top, logo_height);
     prepare_fades();
     apply_colours();
 }
@@ -231,11 +181,6 @@ void video_theme_title(int logo_top, int logo_height) {
 void video_brightness(unsigned char level) {
     brightness = level;
     apply_colours();
-}
-
-void video_hero_tint(unsigned char tint) {
-    hero_tint = tint;
-    for (int i = 0; i < 7; i++) custom->color[17 + i] = dim(hero_colours[tint][i]);
 }
 
 int video_animate(void) {
@@ -270,15 +215,23 @@ static UWORD *wait_line(UWORD *c, UWORD line) {
 void video_init(void) {
     UWORD *c;
 
-    worlds[0] = (UBYTE *)AllocMem(PF1_SIZE, MEMF_CHIP | MEMF_CLEAR);
-    worlds[1] = (UBYTE *)AllocMem(PF1_SIZE, MEMF_CHIP | MEMF_CLEAR);
+    worlds[0] = (UBYTE *)AllocMem(WORLD_SIZE, MEMF_CHIP | MEMF_CLEAR);
+    worlds[1] = (UBYTE *)AllocMem(WORLD_SIZE, MEMF_CHIP | MEMF_CLEAR);
     copper = (UWORD *)AllocMem(COPPER_WORDS * 2, MEMF_CHIP | MEMF_CLEAR);
+    // Room to save what's under the biggest enemy, for each one drawn
+    ULONG save_words = 0;
+    for (int i = 0; i < BOB_COUNT; i++) {
+        ULONG w = (ULONG)bob_info[i].words * bob_info[i].height * PLANES;
+        if (w > save_words) save_words = w;
+    }
+    for (int b = 0; b < 2; b++) {
+        for (int i = 0; i < MAX_BOBS; i++) drawn[b][i].save = (UWORD *)AllocMem(save_words * 2, MEMF_CHIP);
+    }
     front = 0;
     back = 1;
     for (int b = 0; b <= 16; b++) {
         for (int v = 0; v < 16; v++) scaled[b][v] = v * b >> 4;
     }
-    background = bg_indoor;
 
     c = copper;
     // Wait a little into the vertical blank, so the game has updated the
@@ -290,15 +243,15 @@ void video_init(void) {
     cop_sky_top = c + 1;
     c = move(c, REG(color[0]), 0);
     cop_colours = c;
-    for (int i = 1; i < 16; i++) c = move(c, REG(color[i]), 0);
+    for (int i = 1; i < 32; i++) c = move(c, REG(color[i]), 0);
     c = move(c, REG(diwstrt), (DISPLAY_TOP << 8) | 0x81);
     c = move(c, REG(diwstop), ((DISPLAY_TOP + VIEW_H + HUD_HEIGHT - 256) << 8) | 0xc1);
     c = move(c, REG(ddfstrt), 0x0030);
     c = move(c, REG(ddfstop), 0x00d0);
-    c = move(c, REG(bplcon0), 0x6600);      // 6 planes, dual playfield, colour
-    c = move(c, REG(bplcon2), 0x0024);      // sprites in front of both playfields
-    c = move(c, REG(bpl1mod), PF1_STRIDE - FETCH_BYTES);
-    c = move(c, REG(bpl2mod), PF2_STRIDE - FETCH_BYTES);
+    c = move(c, REG(bplcon0), 0x5200);      // 5 planes, colour
+    c = move(c, REG(bplcon2), 0x0024);      // sprites in front
+    c = move(c, REG(bpl1mod), STRIDE - FETCH_BYTES);
+    c = move(c, REG(bpl2mod), STRIDE - FETCH_BYTES);
     cop_bplcon1 = c + 1;
     c = move(c, REG(bplcon1), 0);
     cop_sprites = c;
@@ -307,11 +260,11 @@ void video_init(void) {
         c = move(c, REG(sprpt[i]) + 2, (UWORD)(ULONG)null_sprite);
     }
     cop_planes = c;
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < PLANES; i++) {
         c = move(c, REG(bplpt[i]), 0);
         c = move(c, REG(bplpt[i]) + 2, 0);
     }
-    // The sky: colour 0, changed every line
+    // The sky (colour 0) and colour 31, changed every line
     for (UWORD y = 0; y < VIEW_H; y++) {
         UWORD line = DISPLAY_TOP + y;
         if (line == 256) {
@@ -321,11 +274,11 @@ void video_init(void) {
         c = wait_line(c, line);
         cop_sky[y] = c + 1;
         c = move(c, REG(color[0]), 0);
-        cop_line5[y] = c + 1;
-        c = move(c, REG(color[5]), 0);
+        cop_shine[y] = c + 1;
+        c = move(c, REG(color[31]), 0);
     }
     // The HUD: its own little screen below. Switch in the right border of
-    // the line before, so its all set before the HUDs first line.
+    // the line before, so it's all set before the HUD's first line.
     *c++ = (((HUD_LINE - 1) & 0xff) << 8) | 0xdf;
     *c++ = 0xfffe;
     c = hud_copper(c);
@@ -344,19 +297,17 @@ void video_start(void) {
 
 void video_clear_world(void) {
     wait_blit();
-    memclr(worlds[0], PF1_SIZE);
-    memclr(worlds[1], PF1_SIZE);
+    memclr(worlds[0], WORLD_SIZE);
+    memclr(worlds[1], WORLD_SIZE);
     drawn_count[0] = drawn_count[1] = 0;
 }
 
 static void draw_cell_in(UBYTE *world, unsigned char col, unsigned char row, unsigned char tile) {
     const UWORD *src = tile_gfx[tile];
-    UBYTE *dst = world + (UWORD)row * 16 * PF1_STRIDE + 2 + col * 2;
+    UBYTE *dst = world + (ULONG)row * 16 * STRIDE + 2 + col * 2;
 
-    for (int y = 0; y < 16; y++, dst += PF1_STRIDE) {
-        *(UWORD *)dst = *src++;
-        *(UWORD *)(dst + PF1_ROWBYTES) = *src++;
-        *(UWORD *)(dst + PF1_ROWBYTES * 2) = *src++;
+    for (int y = 0; y < 16; y++, dst += STRIDE) {
+        for (int p = 0; p < PLANES; p++) *(UWORD *)(dst + p * ROWBYTES) = *src++;
     }
 }
 
@@ -371,11 +322,11 @@ void video_plot(int x, int y, unsigned char colour) {
     UBYTE bit;
 
     if (x < 0 || y < 0 || x >= WORLD_W || y >= WORLD_H) return;
-    at = (ULONG)y * PF1_STRIDE + ((x + 16) >> 3);
+    at = (ULONG)y * STRIDE + ((x + 16) >> 3);
     bit = 0x80 >> ((x + 16) & 7);
     for (int w = 0; w < 2; w++) {
-        for (int p = 0; p < 3; p++) {
-            UBYTE *b = worlds[w] + at + p * PF1_ROWBYTES;
+        for (int p = 0; p < PLANES; p++) {
+            UBYTE *b = worlds[w] + at + p * ROWBYTES;
             *b = (colour & (1 << p)) ? (*b | bit) : (*b & ~bit);
         }
     }
@@ -384,33 +335,18 @@ void video_plot(int x, int y, unsigned char colour) {
 // --------------------------------------------------------------- scroll
 
 // The fetch starts a word early, so with no delay the screen's left edge
-// shows bitmap pixel (pointer * 8 + 16). Each bitmap has 16 pixels of
-// margin on the left, so pixel x of the picture is at bitmap x + 16.
-static ULONG scroll_pointer(const UBYTE *base, UWORD stride, int x, int y, UWORD *delay) {
-    *delay = (16 - (x & 15)) & 15;
-    return (ULONG)(base + (ULONG)y * stride + ((x + 15) >> 4) * 2);
-}
-
-static void set_plane(int i, ULONG addr) {
-    cop_planes[i * 4 + 1] = (UWORD)(addr >> 16);
-    cop_planes[i * 4 + 3] = (UWORD)addr;
-}
-
+// shows bitmap pixel (pointer * 8 + 16). The world has 16 pixels of margin
+// on the left, so pixel x of the picture is at bitmap x + 16.
 void video_scroll(int cam_x, int cam_y) {
-    video_scroll_both(cam_x, cam_y, cam_x >> 1, cam_y >> 1);
-}
+    UWORD delay = (16 - (cam_x & 15)) & 15;
+    ULONG p = (ULONG)(worlds[front] + (ULONG)cam_y * STRIDE + ((cam_x + 15) >> 4) * 2);
 
-void video_scroll_both(int cam_x, int cam_y, int bg_x, int bg_y) {
-    UWORD d1, d2;
-    ULONG p1 = scroll_pointer(worlds[front], PF1_STRIDE, cam_x, cam_y, &d1);
-    ULONG p2 = scroll_pointer(background, PF2_STRIDE, bg_x, bg_y, &d2);
-
-    // Odd planes (1, 3, 5) are the front playfield, even the back
-    for (int p = 0; p < 3; p++) {
-        set_plane(p * 2, p1 + p * PF1_ROWBYTES);
-        set_plane(p * 2 + 1, p2 + p * BG_ROWBYTES);
+    for (int i = 0; i < PLANES; i++) {
+        ULONG a = p + i * ROWBYTES;
+        cop_planes[i * 4 + 1] = (UWORD)(a >> 16);
+        cop_planes[i * 4 + 3] = (UWORD)a;
     }
-    *cop_bplcon1 = d1 | (d2 << 4);
+    *cop_bplcon1 = delay | (delay << 4);
 }
 
 // ----------------------------------------------------------------- hero
@@ -440,53 +376,69 @@ void video_hero(int x, int y, int frame) {
 
 // --------------------------------------------------------------- enemies
 
+// Put back what was under the enemies last drawn in this buffer, the last
+// first, in case they overlapped
 void video_bobs_begin(void) {
-    UBYTE *world = worlds[back];
-
-    wait_blit();
-    for (int i = 0; i < drawn_count[back]; i++) {
-        cells_t *d = &drawn[back][i];
-        for (UBYTE r = d->r0; r <= d->r1; r++) {
-            for (UBYTE c = d->c0; c <= d->c1; c++) {
-                draw_cell_in(world, c, r, room_cell_tile((UWORD)r * 32 + c));
-            }
-        }
+    for (int i = drawn_count[back] - 1; i >= 0; i--) {
+        drawn_t *d = &drawn[back][i];
+        wait_blit();
+        custom->bltcon0 = SRCA | DEST | 0xf0;
+        custom->bltcon1 = 0;
+        custom->bltafwm = 0xffff;
+        custom->bltalwm = 0xffff;
+        custom->bltapt = d->save;
+        custom->bltdpt = d->dst;
+        custom->bltamod = 0;
+        custom->bltdmod = ROWBYTES - d->words * 2;
+        custom->bltsize = ((d->height * PLANES) << HSIZEBITS) | d->words;
     }
     drawn_count[back] = 0;
 }
 
-// Blitter: D = A ? B : C, where A is the mask, B the enemy and C the level
-// underneath, all shifted right by x & 15. 32 lines of 3 planes, 3 words.
+// Blitter: save what's there, then D = A ? B : C, where A is the mask, B
+// the enemy and C the level underneath, all shifted right by x & 15. Each
+// line of the bob is its width in words, for each of the 5 planes.
 void video_bob(int x, int y, unsigned char frame) {
+    const bob_t *b = &bob_info[frame];
+    UWORD words = b->words, h = b->height, shift;
+    drawn_t *d;
     UBYTE *dst;
-    UWORD shift = x & 15;
-    cells_t *d;
-    int r1 = (y + 31) >> 4;
 
-    if (drawn_count[back] == MAX_BOBS || x < 0 || y < 0 || x > WORLD_W - 32 || y > WORLD_H - 32) return;
+    x += b->x;
+    y += b->y;
+    if (drawn_count[back] == MAX_BOBS || x < 0 || y < 0) return;
+    if (x + words * 16 > WORLD_W + 16 || y + h > WORLD_H) return;
+    shift = x & 15;
+    dst = worlds[back] + (ULONG)y * STRIDE + 2 + (x >> 4) * 2;
     d = &drawn[back][drawn_count[back]++];
-    d->c0 = x >> 4;
-    d->c1 = (x + 31) >> 4;
-    d->r0 = y >> 4;
-    d->r1 = r1 > 21 ? 21 : r1;
+    d->dst = dst;
+    d->words = words;
+    d->height = h;
 
-    dst = worlds[back] + (ULONG)y * PF1_STRIDE + 2 + (x >> 4) * 2;
+    wait_blit();
+    custom->bltcon0 = SRCA | DEST | 0xf0;
+    custom->bltcon1 = 0;
+    custom->bltafwm = 0xffff;
+    custom->bltalwm = 0xffff;
+    custom->bltapt = dst;
+    custom->bltdpt = d->save;
+    custom->bltamod = ROWBYTES - words * 2;
+    custom->bltdmod = 0;
+    custom->bltsize = ((h * PLANES) << HSIZEBITS) | words;
+
     wait_blit();
     custom->bltcon0 = SRCA | SRCB | SRCC | DEST | 0xca | (shift << ASHIFTSHIFT);
     custom->bltcon1 = shift << BSHIFTSHIFT;
-    custom->bltafwm = 0xffff;
-    custom->bltalwm = 0xffff;
-    custom->bltapt = (APTR)bob_gfx[frame][1];
-    custom->bltbpt = (APTR)bob_gfx[frame][0];
+    custom->bltapt = (APTR)(bob_gfx + b->offset + (ULONG)words * PLANES * h);
+    custom->bltbpt = (APTR)(bob_gfx + b->offset);
     custom->bltcpt = dst;
     custom->bltdpt = dst;
     custom->bltamod = 0;
     custom->bltbmod = 0;
-    custom->bltcmod = PF1_ROWBYTES - 6;
-    custom->bltdmod = PF1_ROWBYTES - 6;
-    custom->bltsize = ((32 * 3) << HSIZEBITS) | 3;
+    custom->bltcmod = ROWBYTES - words * 2;
+    custom->bltdmod = ROWBYTES - words * 2;
+    custom->bltsize = ((h * PLANES) << HSIZEBITS) | words;
 }
-
 void video_bobs_end(void) {
     UBYTE t = front;
 

@@ -53,12 +53,25 @@ void player_spawn(unsigned char x, unsigned char y) {
 
 // Any solid cell in the pixel column x, over the rows the sprite at 'top' covers
 static unsigned char solid_column(unsigned char x, unsigned char top) {
+#if PLAYER_TOP == 0
     unsigned char *p = &room_coll[((unsigned int)(top & 0xF8) << 2) + (x >> 3)];
 
     if ((p[0] | p[32]) & TILE_SOLID) return 1;
     // A sprite not aligned to a cell row overlaps a third row
     if ((top & 7) && (p[64] & TILE_SOLID)) return 1;
     return 0;
+#else
+    // A shorter box: the rows from its top down to the feet
+    unsigned char y = top + PLAYER_TOP;
+    unsigned char rows = ((top + PLAYER_HEIGHT - 1) >> 3) - (y >> 3);
+    unsigned char *p = &room_coll[((unsigned int)(y & 0xF8) << 2) + (x >> 3)];
+
+    do {
+        if (*p & TILE_SOLID) return 1;
+        p += 32;
+    } while (rows--);
+    return 0;
+#endif
 }
 
 // OR of the flags of every cell in pixel row y under the collision box
@@ -262,8 +275,8 @@ static unsigned char move_vertical(unsigned char held) {
             player.jumping = 0;
         }
     } else {
-        if (row_flags(py, left) & TILE_SOLID) {
-            ny = FIX_FROM_INT((py & 0xF8) + 8);
+        if (row_flags(py + PLAYER_TOP, left) & TILE_SOLID) {
+            ny = FIX_FROM_INT(((py + PLAYER_TOP) & 0xF8) + 8 - PLAYER_TOP);
             player.vy = 0;
             player.jumping = 0;
         }

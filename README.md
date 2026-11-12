@@ -146,20 +146,21 @@ The same levels and physics again (`src/player.c` and `src/enemy.c` are
 shared once more), zoomed in to twice the size on a smoothly scrolling
 screen, the way 16-bit platformers looked. So far it has:
 
-- **Dual playfield parallax.** The level is drawn in 16x16 tiles on the
-  front playfield. Behind it, at half the speed, is a far castle wall with
-  tall arched windows, or out on the towers, distant battlements with lit
-  windows.
-- **A copper sky.** The colour behind both playfields changes on every
-  line, for a smooth gradient: dusk through the windows, sunset over the
-  rooftops, and lightning flickering across it in the storm.
+- **Sunny Land art** by [ansimuz](https://ansimuz.itch.io/): Foxy, the
+  opossums and eagles, and the earth, logs and old stone ruins the levels
+  are built from, on one 32-colour screen (5 bitplanes). The tiles are
+  picked to fit their neighbours: grassy edges outdoors, carved stone
+  indoors.
+- **A copper sky.** Colour 0 changes on every line, for a smooth gradient:
+  a sunny morning, sunset over the hills, dusk, mist, and lightning
+  flickering across the storm. The title's logo shines the same way.
 - **A colour scheme for every level**, and fades between them.
-- **A 32x32 hero in 15 colours**, from four hardware sprites in two
-  attached pairs. The frames are made from the C64 art: scaled up with
-  Scale2x, then outlined and shaded, so there's still one source to edit.
-- **Enemies drawn by the blitter** into a double-buffered playfield. They
-  share each level's danger colour with the spikes: anything in that colour
-  kills.
+- **Foxy in hardware sprites**, 32x32 in 15 colours from two attached
+  pairs, running, jumping, falling, gripping walls, crouching and wincing.
+- **Enemies drawn by the blitter** into a double-buffered playfield, with
+  the level put back behind them each frame.
+- **The exit is a door**, which opens when the level's done, and the
+  hidden trophy is a spinning gem.
 - **A fly-over.** At 2x a level no longer fits on the screen, so each one
   opens on the exit and glides back to the start. The camera then follows
   the hero, looking ahead the way they face. Fire skips the fly-over.
@@ -168,7 +169,7 @@ screen, the way 16-bit platformers looked. So far it has:
   arpeggios and vibrato. Sound effects have the fourth channel to
   themselves, so they never cut into the music.
 - **A HUD** in the system font, on a screen of its own under the play area,
-  and a title screen with a shining logo over the drifting towers.
+  and a title screen with a shining logo, Foxy and an opossum in pursuit.
 
 Use a joystick in port 2: up or fire jumps, down drops through a platform.
 
@@ -180,6 +181,13 @@ VS Code extension. Run the **Build Amiga** task, or:
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_amiga.ps1
 ```
 
+The art isn't in this repository: it's ansimuz's to hand out, not this
+project's. Get the Sunny Land pack from
+[ansimuz on itch.io](https://ansimuz.itch.io/) and put it in `assets/`
+(`assets/Characters`, `assets/environment`, `assets/Misc`), which git
+ignores. The build reads the PNGs from there and makes the palette, tiles
+and sprites from them.
+
 That writes `build/amiga/kaiz.exe` and a bootable disk image,
 `build/amiga/kaiz.adf`, which runs on the free AROS ROM, so no Kickstart is
 needed. To play it, drag the disk image onto
@@ -188,7 +196,7 @@ and set port 2 to the keyboard (arrow keys and Space). With a Kickstart 1.3
 ROM set in `.vscode/launch.json`, F5 in VS Code builds it and runs it in
 the extension's WinUAE, with its debugger and profiler.
 
-The level tiles are in [amiga/data/tiles.txt](amiga/data/tiles.txt), and
+Which piece of the art is which is in `tools/build_amiga.ps1`, and
 each level's colours are the `themes` table in
 [amiga/src/video.c](amiga/src/video.c). The soundtrack is shared with the
 C64: `tools/song.ps1` compiles [c64/data/music.txt](c64/data/music.txt) for
@@ -252,7 +260,7 @@ tables for the AY.
 src/         game code: C, plus Z80 assembly for input, interrupts and drawing
 data/        levels, sprite art, music, start screen and loading screen
 c64/         the C64 version: its own code (c64/src), graphics and music (c64/data)
-amiga/       the Amiga version: its own code (amiga/src) and tiles (amiga/data)
+amiga/       the Amiga version: its own code (amiga/src)
 tools/       data converter, screen generators, web page, C64 and Amiga builds
 docs/        README images
 web/         web page template and the JSSpeccy emulator

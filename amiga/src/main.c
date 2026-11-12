@@ -58,6 +58,7 @@ static unsigned int deaths;
 // Last ticks player state, to hear jumps
 static unsigned char was_jumping, was_wall_lock;
 static unsigned char thunder;           // frames until the thunder
+static unsigned char held_now;          // this frame's input (Foxy crouches)
 
 // The camera, in 1/16ths of a world pixel
 static int cam_x, cam_y;
@@ -95,7 +96,6 @@ static void respawn(void) {
     player_visible = 1;
     was_jumping = 0;
     was_wall_lock = 0;
-    video_hero_tint(0);
     state = STATE_PLAY;
 }
 
@@ -111,8 +111,8 @@ static void start_level(unsigned char n) {
     int cell;
 
     video_hero(0, 0, -1);
+    video_theme(n);             // first: the room is drawn in its style
     room_load(n);
-    video_theme(n);
     video_brightness(0);
     hud_level(rooms[n].name, n + 1, room_count);
     hud_deaths(deaths);
@@ -150,10 +150,7 @@ static void start_death(void) {
 
 static void update_death(void) {
     ++state_timer;
-    if (state_timer < DEATH_HITSTOP) {
-        video_hero_tint((state_timer & 2) ? 2 : 1);
-    } else if (state_timer == DEATH_HITSTOP) {
-        video_hero_tint(2);
+    if (state_timer == DEATH_HITSTOP) {
         player_death_pop();
     } else if (player_visible) {
         if (player_death_fall()) {
@@ -180,11 +177,14 @@ static void handle_event(unsigned char ev) {
             state = STATE_CLEAR;
             state_timer = 0;
             player.frame = SPR_IDLE + (player.facing_left ? SPR_LEFT : 0);
+            room_open_door();
             sound_play(SFX_CLEAR);
             break;
     }
 }
 
+// Any cell under the whole sprite, not just the collision box: some gems
+// sit where only the top of a full-height (16 pixel) hero could reach
 static unsigned char touching_trophy(void) {
     unsigned char left = FIX_WHOLE(player.x) + PLAYER_HB_X;
     unsigned char top = FIX_WHOLE(player.y);
@@ -268,39 +268,45 @@ static void update_camera(void) {
     cam_y += ((ty << 4) - cam_y) / CAM_EASE;
 }
 
+// Foxy's frame (HERO_*; + 1 is the same facing left), or -1 for none
 static int hero_frame(void) {
-    static const unsigned char run[4] = { HERO_RUN_1, HERO_RUN_2, HERO_RUN_3, HERO_RUN_4 };
+    static const unsigned char idle[4] = { HERO_IDLE_1, HERO_IDLE_2, HERO_IDLE_3, HERO_IDLE_4 };
+    static const unsigned char run[6] = { HERO_RUN_1, HERO_RUN_2, HERO_RUN_3, HERO_RUN_4, HERO_RUN_5, HERO_RUN_6 };
     unsigned char f = player.frame, left = 0, base;
 
     if (!player_visible) return -1;
-    if (f == SPR_DEAD) return HERO_DEAD;
+    if (f == SPR_DEAD) {
+        // Flickering while the game holds still, then knocked away
+        if (state == STATE_DYING && state_timer < DEATH_HITSTOP && (state_timer & 2)) return -1;
+        return ((frame_count >> 3) & 1) ? HERO_HURT_2 : HERO_HURT_1;
+    }
     if (f >= SPR_LEFT) {
         f -= SPR_LEFT;
         left = 1;
     }
+    if (state == STATE_CLEAR) return HERO_VICTORY + left;
     switch (f) {
-        case SPR_IDLE:  base = ((frame_count & 127) < 5) ? HERO_BLINK : HERO_IDLE; break;
+        case SPR_IDLE:  base = (held_now & IN_DOWN) ? HERO_CROUCH : idle[(frame_count >> 3) & 3]; break;
         case SPR_RUN_A:
-        case SPR_RUN_B: base = run[(player.anim >> 10) & 3]; break;
+        case SPR_RUN_B: base = run[(player.anim >> 10) % 6]; break;
         case SPR_JUMP:  base = player.vy < 0 ? HERO_JUMP : HERO_FALL; break;
-        default:        base = HERO_WALL; break;
+        default:        base = ((frame_count >> 3) & 1) ? HERO_WALL_2 : HERO_WALL_1; break;
     }
     return base + left;
 }
 
-// The enemies, drawn by the blitter into the hidden buffer
+// The enemies, drawn by the blitter into the hidden buffer: the opossum
+// runs (its art faces left; _R faces right), the eagle flaps
 static void draw_enemies(void) {
-    static const unsigned char flap[4] = { BOB_FLYER_1, BOB_FLYER_2, BOB_FLYER_3, BOB_FLYER_2 };
     enemy_t *e = enemies;
-    unsigned char i, k, frame;
+    unsigned char i, frame;
 
     video_bobs_begin();
     for (i = 0; i < enemy_count; i++, e++) {
         if (e->type == ENEMY_WALKER) {
-            k = e->frame - SPR_WALKER_A;        // A, B, then the same facing left
-            frame = ((k & 1) ? BOB_WALKER_2 : BOB_WALKER_1) + (k >> 1);
+            frame = BOB_WALKER_1 + ((e->anim >> 9) % 6) * 2 + (e->vel > 0);
         } else {
-            frame = flap[((frame_count >> 2) + i) & 3];
+            frame = BOB_FLYER_1 + (((frame_count >> 2) + i) & 3);
         }
         video_bob(e->x >> 7, e->y >> 7, frame);
     }
@@ -333,6 +339,7 @@ static int play_game(void) {
         room_animate(frame_count);
 
         held = input_read();
+        held_now = held;
         pressed = held & ~prev;
         prev = held;
         if (ticks > MAX_CATCHUP) ticks = MAX_CATCHUP;
