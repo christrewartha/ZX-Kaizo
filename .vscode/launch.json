@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "amiga",
+      "request": "launch",
+      "name": "Run Amiga version (WinUAE)",
+      "config": "A500",
+      "program": "${workspaceFolder}/build/amiga/kaiz",
+      "internalConsoleOptions": "openOnSessionStart",
+      "preLaunchTask": "Build Amiga"
+    }
+  ]
+}

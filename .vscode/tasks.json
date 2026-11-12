@@ -52,6 +52,13 @@
       "problemMatcher": []
     },
     {
+      "label": "Build Amiga",
+      "type": "shell",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_amiga.ps1",
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
       "label": "Build Web Page",
       "type": "shell",
       "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_web.ps1",

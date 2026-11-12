@@ -1,9 +1,9 @@
 #ifndef SONG_H
 #define SONG_H
 
-// The soundtrack's data, generated from c64/data/music.txt into
-// build/c64gen/song_data.c (see that file's comments for what each
-// instrument setting does)
+// The soundtrack's data, compiled from c64/data/music.txt into
+// song_data.c by tools/song.ps1, for both the C64 and the Amiga. The
+// comments in music.txt say what each instrument setting does.
 
 typedef struct {
     unsigned char wave, wave2, wave2_at;

@@ -140,6 +140,60 @@ as `data/music.txt`. The intro section takes its notes straight from
 `data/music.txt`, so the two versions share that song. The title screen
 starts the music from the intro again.
 
+## The Amiga version: Kaizamigo (work in progress)
+
+The same levels and physics again (`src/player.c` and `src/enemy.c` are
+shared once more), zoomed in to twice the size on a smoothly scrolling
+screen, the way 16-bit platformers looked. So far it has:
+
+- **Dual playfield parallax.** The level is drawn in 16x16 tiles on the
+  front playfield. Behind it, at half the speed, is a far castle wall with
+  tall arched windows, or out on the towers, distant battlements with lit
+  windows.
+- **A copper sky.** The colour behind both playfields changes on every
+  line, for a smooth gradient: dusk through the windows, sunset over the
+  rooftops, and lightning flickering across it in the storm.
+- **A colour scheme for every level**, and fades between them.
+- **A 32x32 hero in 15 colours**, from four hardware sprites in two
+  attached pairs. The frames are made from the C64 art: scaled up with
+  Scale2x, then outlined and shaded, so there's still one source to edit.
+- **Enemies drawn by the blitter** into a double-buffered playfield. They
+  share each level's danger colour with the spikes: anything in that colour
+  kills.
+- **A fly-over.** At 2x a level no longer fits on the screen, so each one
+  opens on the exit and glides back to the start. The camera then follows
+  the hero, looking ahead the way they face. Fire skips the fly-over.
+- **Paula music.** The C64's soundtrack, played from generated waveform
+  and drum samples with the SID instruments' envelopes, pulse sweeps,
+  arpeggios and vibrato. Sound effects have the fourth channel to
+  themselves, so they never cut into the music.
+- **A HUD** in the system font, on a screen of its own under the play area,
+  and a title screen with a shining logo over the drifting towers.
+
+Use a joystick in port 2: up or fire jumps, down drops through a platform.
+
+It builds with the GCC that comes with the
+[Amiga C/C++ Compile, Debug & Profile](https://marketplace.visualstudio.com/items?itemName=BartmanAbyss.amiga-debug)
+VS Code extension. Run the **Build Amiga** task, or:
+
+```sh
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_amiga.ps1
+```
+
+That writes `build/amiga/kaiz.exe` and a bootable disk image,
+`build/amiga/kaiz.adf`, which runs on the free AROS ROM, so no Kickstart is
+needed. To play it, drag the disk image onto
+[vAmigaWeb](https://vamigaweb.github.io), pick AROS if it asks for a ROM,
+and set port 2 to the keyboard (arrow keys and Space). With a Kickstart 1.3
+ROM set in `.vscode/launch.json`, F5 in VS Code builds it and runs it in
+the extension's WinUAE, with its debugger and profiler.
+
+The level tiles are in [amiga/data/tiles.txt](amiga/data/tiles.txt), and
+each level's colours are the `themes` table in
+[amiga/src/video.c](amiga/src/video.c). The soundtrack is shared with the
+C64: `tools/song.ps1` compiles [c64/data/music.txt](c64/data/music.txt) for
+both.
+
 ## Making levels
 
 All the levels are in one text file, [data/world.txt](data/world.txt), in
@@ -197,8 +251,9 @@ tables for the AY.
 ```
 src/         game code: C, plus Z80 assembly for input, interrupts and drawing
 data/        levels, sprite art, music, start screen and loading screen
-c64/         the C64 version: its own code (c64/src) and graphics (c64/data)
-tools/       data converter, screen generators, web page and C64 builds
+c64/         the C64 version: its own code (c64/src), graphics and music (c64/data)
+amiga/       the Amiga version: its own code (amiga/src) and tiles (amiga/data)
+tools/       data converter, screen generators, web page, C64 and Amiga builds
 docs/        README images
 web/         web page template and the JSSpeccy emulator
 deploy/      service and one-time setup for the web server
