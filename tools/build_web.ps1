@@ -7,6 +7,8 @@
 #   web/c64.html     the C64 version's page, at c64/
 #   web/tiny8bit/    the Tiny Emulators C64 (see its LICENSE.txt)
 #   build/kaiz64o.*  the C64 version, from tools/build_c64.ps1
+#   web/amiga.html   the Amiga version's page, at amiga/, with vAmigaWeb
+#                    (downloaded into build/cache) and build/amiga/kaiz.adf
 #
 # Writes build/web/, a folder that any static web server can serve as is.
 #
@@ -21,6 +23,8 @@ if (-not (Test-Path $tap)) { throw "build/game.tap not found: build the game fir
 $prg = Join-Path $root 'build/kaiz64o.prg'
 $d64 = Join-Path $root 'build/kaiz64o.d64'
 if (-not (Test-Path $d64)) { throw "build/kaiz64o.d64 not found: run tools/build_c64.ps1 first" }
+$adf = Join-Path $root 'build/amiga/kaiz.adf'
+if (-not (Test-Path $adf)) { throw "build/amiga/kaiz.adf not found: run tools/build_amiga.ps1 first" }
 
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
 New-Item -ItemType Directory $out | Out-Null
@@ -107,4 +111,47 @@ $html = [IO.File]::ReadAllText((Join-Path $root 'web/c64.html'))
 $html = $html.Replace('{{PRG}}', $prgName).Replace('{{D64}}', $d64Name)
 [IO.File]::WriteAllText((Join-Path $c64 'index.html'), $html)
 
-Write-Host "Wrote $out ($tapName, c64/$prgName)"
+
+# -------------------------------------------------------- Amiga version
+
+# The Amiga runs on vAmigaWeb (GPL v3), with the free AROS ROM. It's big
+# (the emulator alone is 8MB), so rather than keep a copy in the repository
+# like JSSpeccy, it's downloaded once, at a fixed version, into build/cache.
+# Only what the page needs goes on the site: not the documentation, not the
+# other ROMs, and not the service worker (which would cache old builds and
+# offer upgrades; without it vAmigaWeb just logs that it couldn't register).
+$vamigaCommit = 'a83eb5361b078fe332ac6a5af3da17bf5fcb3c68'
+$cache = Join-Path $root "build/cache/vamigaweb-$vamigaCommit"
+if (-not (Test-Path (Join-Path $cache 'vAmiga.wasm'))) {
+    Write-Host "Downloading vAmigaWeb ($vamigaCommit)..."
+    $zip = Join-Path ([IO.Path]::GetTempPath()) "vamigaweb-$vamigaCommit.zip"
+    $ProgressPreference = 'SilentlyContinue'
+    Invoke-WebRequest "https://github.com/vAmigaWeb/vAmigaWeb.github.io/archive/$vamigaCommit.zip" -OutFile $zip -UseBasicParsing
+    $unpack = Join-Path ([IO.Path]::GetTempPath()) "vamigaweb-$vamigaCommit"
+    if (Test-Path $unpack) { Remove-Item -Recurse -Force $unpack }
+    Expand-Archive $zip $unpack
+    New-Item -ItemType Directory -Force (Split-Path $cache) | Out-Null
+    Move-Item (Join-Path $unpack "vAmigaWeb.github.io-$vamigaCommit") $cache
+    Invoke-WebRequest 'https://raw.githubusercontent.com/vAmigaWeb/vAmigaWeb/main/LICENSE' -OutFile (Join-Path $cache 'LICENSE') -UseBasicParsing
+    Remove-Item -Recurse -Force $unpack, $zip
+}
+
+$amiga = Join-Path $out 'amiga'
+$emu = Join-Path $amiga 'vamiga'
+New-Item -ItemType Directory -Force (Join-Path $emu 'roms') | Out-Null
+foreach ($item in 'index.html', 'vAmiga.js', 'vAmiga.wasm', 'manifest.json', 'LICENSE', 'css', 'img', 'js', 'sounds') {
+    Copy-Item -Recurse (Join-Path $cache $item) $emu
+}
+Get-ChildItem (Join-Path $emu 'js') -Filter '*.map' | Remove-Item
+foreach ($rom in 'aros-rom-20260820.bin', 'aros-ext-20260820.bin') {
+    Copy-Item (Join-Path $cache "roms/$rom") (Join-Path $emu 'roms')
+}
+Copy-Item (Join-Path $root 'docs/kaizamigo.png') $amiga
+$hash = (Get-FileHash $adf -Algorithm SHA256).Hash.Substring(0, 12).ToLower()
+$adfName = "kaizamigo-$hash.adf"
+Copy-Item $adf (Join-Path $amiga $adfName)
+$html = [IO.File]::ReadAllText((Join-Path $root 'web/amiga.html'))
+$html = $html.Replace('{{ADF}}', $adfName)
+[IO.File]::WriteAllText((Join-Path $amiga 'index.html'), $html)
+
+Write-Host "Wrote $out ($tapName, c64/$prgName, amiga/$adfName)"

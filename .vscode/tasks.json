@@ -62,7 +62,7 @@
       "label": "Build Web Page",
       "type": "shell",
       "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_web.ps1",
-      "dependsOn": ["Build Spectrum TAP", "Build C64 PRG"],
+      "dependsOn": ["Build Spectrum TAP", "Build C64 PRG", "Build Amiga"],
       "group": "build",
       "problemMatcher": []
     },

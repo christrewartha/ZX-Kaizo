@@ -16,6 +16,8 @@ if (-not (Test-Path $site)) { throw "build/web not found: run tools/build_web.ps
 $types = @{
     '.html' = 'text/html; charset=utf-8'; '.js' = 'text/javascript'; '.wasm' = 'application/wasm'
     '.png' = 'image/png'; '.txt' = 'text/plain'; '' = 'text/plain'
+    '.css' = 'text/css'; '.svg' = 'image/svg+xml'; '.json' = 'application/json'; '.mp3' = 'audio/mpeg'
+    '.ico' = 'image/x-icon'; '.map' = 'application/json'
 }
 
 $listener = New-Object Net.HttpListener
