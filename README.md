@@ -85,6 +85,61 @@ Type `LOAD ""` and press Enter. On a 128K machine, pick **Tape Loader**
 instead. Then play `build/game.wav`. Loading takes about 3 minutes.
 If it fails, try a different volume and turn off any audio effects or EQ.
 
+## The Commodore 64 version: Kaiz64o
+
+The same game for the C64, with the same 15 levels and exactly the same
+physics: it compiles `src/player.c` and `src/enemy.c` unchanged. Everything
+you see and hear is the C64's own:
+
+- **Multicolour graphics.** Every level has its own colour scheme, from the
+  warm brick of the Kitchen to the night sky over the towers and the storm
+  at the top. The tiles join up: bricks with open air above them get a lit
+  cap. Behind the play area is stonework or a starry sky, and the castle
+  walls either side carry flickering torches.
+- **Hardware sprites.** The climber is two sprites: a multicolour body with
+  a hi-res black outline laid over it. Beetles, bats, the trophy and the
+  dust and sparkle effects have a sprite each. A carried trophy floats over
+  your head.
+- **Raster splits.** The play area and the HUD each have their own palette,
+  the title's message scrolls smoothly on its own split, and the screen
+  shakes when you die. In the last four levels, lightning lights up the sky
+  and thunder follows.
+- **SID music.** The AY version's song is the intro, with a sweeping pulse
+  bass through the resonant filter, a plucked electric piano and vibes with
+  vibrato. Then a bar of drums picks up the pace into a fast main theme:
+  kick and snare drums between a pumping bass, shimmering arpeggio chords
+  and a stabbing pulse lead. Jumps, wall jumps, deaths, trophies and level
+  clears all have sound effects.
+
+Use a joystick in either port, or the same keys as the Spectrum.
+
+You need [oscar64](https://github.com/drmortalwombat/oscar64) on your `PATH`,
+and [VICE](https://vice-emu.sourceforge.io/) to play it (`x64sc` on your
+`PATH`, and `c1541` from the same folder for the disk image). In VS Code, run
+the **Build C64 PRG** or **Run in VICE** task. From a shell:
+
+```sh
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_c64.ps1
+x64sc -autostart build/kaiz64o.d64
+```
+
+The build writes `build/kaiz64o.prg` and a disk image, `build/kaiz64o.d64`.
+Add `-Run` to the build to start VICE when it's done, and `-Start <n>` to
+skip the title and start on level n, for testing.
+
+The C64's own data is in `c64/data/`: [chars.txt](c64/data/chars.txt) holds
+the character graphics (tiles, background, walls, HUD and logo pieces), and
+[sprites.txt](c64/data/sprites.txt) the sprite art, drawn in multicolour
+double-width pixels. The colour scheme for each level is the `themes` table
+in [c64/src/gfx.c](c64/src/gfx.c).
+
+The soundtrack is [c64/data/music.txt](c64/data/music.txt): SID instruments
+(waveform, envelope, pulse width sweep, arpeggio chords, vibrato, filter,
+and pitch drops for drums), then sections of step grids in the same style
+as `data/music.txt`. The intro section takes its notes straight from
+`data/music.txt`, so the two versions share that song. The title screen
+starts the music from the intro again.
+
 ## Making levels
 
 All the levels are in one text file, [data/world.txt](data/world.txt), in
@@ -142,7 +197,8 @@ tables for the AY.
 ```
 src/         game code: C, plus Z80 assembly for input, interrupts and drawing
 data/        levels, sprite art, music, start screen and loading screen
-tools/       data converter, screen generators and web page build
+c64/         the C64 version: its own code (c64/src) and graphics (c64/data)
+tools/       data converter, screen generators, web page and C64 builds
 docs/        README images
 web/         web page template and the JSSpeccy emulator
 deploy/      service and one-time setup for the web server
@@ -215,6 +271,23 @@ DROP, START and SKIP buttons. Each one sends the emulator the same key events as
 the keyboard. Turned sideways, the page shows just the game, with the
 controls on either side. `build_web.ps1` also draws the site's icons from
 the hero's jump sprite.
+
+### The C64 version's page
+
+`build_web.ps1` also puts Kaiz64o on the site, at `c64/`, so it needs a C64
+build (`tools/build_c64.ps1`) as well. Its template is
+[web/c64.html](web/c64.html), with the same layout and touch controls. It
+runs on the [Tiny Emulators](https://floooh.github.io/tiny8bit/) C64 by
+Andre Weissflog: a copy is in `web/tiny8bit/`, under the zlib and MIT
+licences in its `LICENSE.txt`. The emulator includes the C64's ROMs.
+
+The emulator runs in a frame, [web/tiny8bit/emu.html](web/tiny8bit/emu.html),
+which loads the program and types `RUN`. The emulator only treats the arrow
+keys and Space as held keys (as joystick 2): it types letter keys, so
+holding one repeats it. So the frame swaps the game's keys O, P, Q, A and M
+for those, and the touch buttons send the same. N goes through as typed.
+The emulator also prints a frame counter along the bottom of its screen,
+which the page hides under a black strip.
 
 ### Deploying
 

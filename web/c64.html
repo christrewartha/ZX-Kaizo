@@ -1,0 +1,292 @@
+<!doctype html>
+<!-- Template for the C64 version's page: tools/build_web.ps1 fills in the
+     program's file name and writes build/web/c64/index.html -->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Kaiz64o - a Commodore 64 platformer</title>
+    <meta name="description" content="A tough, precise platformer for the Commodore 64. Play it in your browser.">
+    <meta property="og:title" content="Kaiz64o">
+    <meta property="og:description" content="A tough, precise platformer for the Commodore 64. Play it in your browser.">
+    <meta name="theme-color" content="#352879">
+    <link rel="icon" href="../favicon.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="../apple-touch-icon.png">
+    <style>
+        /* The C64's palette: light blue text on blue, as at power-on */
+        :root {
+            --black: #000; --blue: #352879; --lt-blue: #6c5eb5; --red: #68372b;
+            --orange: #6f4f25; --yellow: #b8c76f; --cyan: #70a4b2; --white: #d0d0d0;
+            --lt-red: #9a6759; --green: #588d43;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            touch-action: manipulation;     /* no double-tap zoom, pinch still works */
+            background: var(--blue);
+            color: var(--lt-blue);
+            font: 16px/1.5 "Courier New", Courier, monospace;
+        }
+        main { max-width: 680px; margin: 0 auto; padding: 24px 20px 48px; }
+        h1 { margin: 0; font-size: 44px; letter-spacing: 4px; color: #fff; }
+        h1 .six { color: var(--lt-red); }
+        h1 .four { color: var(--yellow); }
+        .tagline { margin: 0 0 20px; color: var(--cyan); }
+        h2 { margin: 32px 0 8px; font-size: 18px; color: var(--yellow); }
+        a { color: var(--cyan); }
+        p, td { color: #c8c2f0; }
+
+        /* Stripes from the logo's fiery bars */
+        .stripes {
+            height: 12px; margin: 0 0 20px;
+            background: linear-gradient(to right,
+                #9a6759 0 20%, #6f4f25 0 40%, #b8c76f 0 60%, #fff 0 80%, #6c5eb5 0);
+        }
+
+        #player { width: 640px; max-width: 100%; }
+        #poster {
+            display: block; position: relative; width: 100%; padding: 0;
+            border: 0; background: none; cursor: pointer;
+        }
+        #poster img { display: block; width: 100%; image-rendering: pixelated; }
+        #poster span {
+            position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+            padding: 10px 18px; border: 3px solid #fff;
+            background: var(--lt-blue); color: #fff;
+            font: bold 22px "Courier New", Courier, monospace; letter-spacing: 2px;
+        }
+        #poster:hover span, #poster:focus span { background: var(--lt-red); }
+
+        /* The emulator, in a frame shaped like the C64's picture. Its frame
+           counter, along the bottom, is hidden under a black strip. */
+        #screen { position: relative; width: 100%; aspect-ratio: 392 / 272; background: #000; overflow: hidden; }
+        #screen iframe { display: block; width: 100%; height: calc(100% + 14px); border: 0; }
+        #screen::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 14px; background: #000; }
+
+        table { border-collapse: collapse; }
+        th, td { padding: 4px 16px 4px 0; text-align: left; vertical-align: top; }
+        th { color: var(--cyan); font-weight: normal; }
+        kbd {
+            display: inline-block; min-width: 1.6em; padding: 0 4px; text-align: center;
+            border: 1px solid var(--lt-blue); border-radius: 3px; color: #fff; font: inherit;
+        }
+        footer { margin-top: 40px; font-size: 13px; color: var(--lt-blue); }
+        .touch-only { display: none; }
+        body.touch .touch-only { display: revert; }
+        body.touch .keys-only { display: none; }
+
+        /* ------------------------------------------------ touch controls */
+
+        /* As on the Spectrum page: the screen fills the width, with a d-pad
+           bottom-left and the action buttons bottom-right */
+        #console { display: grid; grid-template-areas: "screen screen" "move act"; }
+        body.touch.playing #console { row-gap: 20px; }
+        #player { grid-area: screen; }
+        .pad { display: none; }
+        body.touch.playing .pad { display: flex; align-items: center; }
+        #pad-move { grid-area: move; justify-content: flex-start; }
+        #pad-act { grid-area: act; justify-content: flex-end; gap: 14px; }
+        body.touch #player { width: 100%; }
+
+        .pad, .pad * {
+            touch-action: none; user-select: none; -webkit-user-select: none;
+            -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+        }
+        .btn {
+            display: flex; align-items: center; justify-content: center;
+            border: 3px solid var(--lt-blue); color: #fff; background: #241b57;
+            font: bold 15px "Courier New", Courier, monospace; letter-spacing: 1px;
+        }
+        .btn.down, #jump.down { background: var(--lt-red); border-color: #fff; }
+        #dpad { display: flex; gap: 8px; padding: 8px; margin: -8px; }
+        #dpad .btn { width: 72px; height: 72px; border-radius: 12px; font-size: 28px; pointer-events: none; }
+        .round { border-radius: 50%; }
+        #jump { width: 92px; height: 92px; background: var(--lt-blue); }
+        #drop { width: 64px; height: 64px; }
+        #pad-act .stack { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+        #start, #skip { width: 64px; height: 30px; border-radius: 15px; font-size: 11px; border-width: 2px; }
+
+        /* Turned sideways: just the game, held like a handheld console */
+        @media (orientation: landscape) {
+            body.touch.playing { overflow: hidden; }
+            body.touch.playing main { max-width: none; height: 100vh; height: 100dvh; padding: 0; }
+            body.touch.playing main > :not(#console) { display: none; }
+            body.touch.playing #console {
+                height: 100%; grid-template-areas: "move screen act";
+                grid-template-columns: 1fr auto 1fr; column-gap: 12px; align-items: center;
+                padding: 0 16px;
+            }
+            body.touch.playing #player { width: auto; height: 100%; display: flex; align-items: center; }
+            body.touch.playing #screen { width: auto; height: 100%; }
+            body.touch.playing #pad-move { justify-content: center; }
+            body.touch.playing #pad-act { justify-content: center; gap: 10px; }
+            body.touch.playing #dpad .btn { width: 60px; height: 64px; }
+            body.touch.playing #jump { width: 76px; height: 76px; }
+            body.touch.playing #drop { width: 56px; height: 56px; }
+            body.touch.playing #start, body.touch.playing #skip { width: 56px; }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Kaiz<span class="six">6</span><span class="four">4</span>o</h1>
+    <p class="tagline">A platformer with no mercy, for the Commodore 64.</p>
+    <div class="stripes"></div>
+
+    <div id="console">
+        <div id="player">
+            <button id="poster" type="button" aria-label="Play Kaiz64o">
+                <img src="kaiz64o.png" alt="Kaiz64o title screen: the big fiery logo, with bats and the hooded hero">
+                <span>&#9654; PLAY</span>
+            </button>
+        </div>
+        <div class="pad" id="pad-move">
+            <div id="dpad" aria-label="Left and right">
+                <div class="btn" data-key="left">&#9664;</div>
+                <div class="btn" data-key="right">&#9654;</div>
+            </div>
+        </div>
+        <div class="pad" id="pad-act">
+            <div class="stack">
+                <div class="btn" id="start" data-key="fire">START</div>
+                <div class="btn" id="skip" data-key="skip">SKIP</div>
+                <div class="btn round" id="drop" data-key="down">DROP</div>
+            </div>
+            <div class="btn round" id="jump" data-key="fire">JUMP</div>
+        </div>
+    </div>
+
+    <h2>How to play</h2>
+    <p>
+        Climb, fall and wall-jump through 15 levels of a haunted castle, past
+        spikes, beetles and bats. Each level is one screen: reach the exit in
+        the right-hand wall. Lives are unlimited.
+    </p>
+    <p>
+        Each level also hides a trophy, off the way to the exit and harder to
+        get to. Grab it, then reach the exit to win it. Die on the way and it
+        goes back.
+    </p>
+    <table class="keys-only">
+        <tr><th>Left / right</th><td><kbd>O</kbd> <kbd>P</kbd>, or <kbd>&#8592;</kbd> <kbd>&#8594;</kbd></td></tr>
+        <tr><th>Jump</th><td><kbd>Q</kbd>, <kbd>Space</kbd>, <kbd>M</kbd> or <kbd>&#8593;</kbd></td></tr>
+        <tr><th>Drop through a platform</th><td>hold <kbd>A</kbd> or <kbd>&#8595;</kbd></td></tr>
+        <tr><th>Skip the level</th><td><kbd>N</kbd></td></tr>
+    </table>
+    <p class="keys-only">
+        Press <kbd>Space</kbd> at the title screen to begin. Click the
+        C64's screen first if it isn't taking your keys.
+    </p>
+    <p class="touch-only">
+        Use the buttons under the screen: START at the title screen, the
+        arrows to run, JUMP to jump, hold DROP to fall through a platform, and
+        SKIP to give up on a level and go to the next.
+        Slide your thumb across the arrows to change direction. Turn your
+        phone sideways for a bigger screen.
+    </p>
+
+    <h2>Play it on a real C64</h2>
+    <p>
+        Download the disk image, <a href="{{D64}}" download="kaiz64o.d64">kaiz64o.d64</a>,
+        for any emulator, or for a real C64 with an SD2IEC, Pi1541 or 1541
+        Ultimate. Type <kbd>LOAD "*",8,1</kbd>, then <kbd>RUN</kbd>. Use a
+        joystick in either port, or the keys above (O, P, Q, A, Space, M, N).
+    </p>
+    <p>
+        There's also a ZX Spectrum version, <a href="../">KaiZXo</a>, with the
+        same levels.
+    </p>
+
+    <footer>
+        &copy; 2026 Chris Trewartha.
+        Running on the C64 from <a href="https://floooh.github.io/tiny8bit/">Tiny Emulators</a>
+        by Andre Weissflog (<a href="tiny8bit/LICENSE.txt">licences</a>).
+    </footer>
+</main>
+
+<script>
+    const touch = matchMedia('(pointer: coarse)').matches;
+    document.body.classList.toggle('touch', touch);
+    let emu = null;             // the emulator frame's window, once it's up
+
+    // Start on a click, so the browser lets the music play
+    function play() {
+        const player = document.getElementById('player');
+        const args = 'file=../{{PRG}}&input=RUN%0A&joystick=digital_2';
+        player.innerHTML = '<div id="screen"><iframe title="Kaiz64o on a C64" ' +
+            'allow="autoplay" src="tiny8bit/emu.html?' + args + '"></iframe></div>';
+        const frame = player.querySelector('iframe');
+        frame.addEventListener('load', () => {
+            emu = frame.contentWindow;
+            if (!touch) frame.focus();
+        });
+        document.body.classList.add('playing');
+    }
+    document.getElementById('poster').addEventListener('click', play);
+    if (location.hash === '#play') play();
+
+    // The emulator's sound is in the frame; a tap out here resumes it too
+    for (const type of ['touchend', 'click', 'keydown']) {
+        document.addEventListener(type, () => { if (emu) emu.resumeAudio(); }, true);
+    }
+    // iPhones mute web audio when the ring/silent switch is on silent,
+    // unless the page says it's playing media, like a video would
+    if (navigator.audioSession) navigator.audioSession.type = 'playback';
+
+    // ---------------------------------------------------- touch controls
+
+    // Each button stands in for a joystick direction or fire (or N, for
+    // SKIP), and has the frame send the emulator the matching key
+    const held = {};              // key name -> how many fingers hold it
+    const fingers = new Map();    // pointerId -> key name
+
+    function setFinger(id, name) {
+        const old = fingers.get(id);
+        if (old === name) return;
+        if (old && --held[old] === 0 && emu) emu.press(old, false);
+        if (name) {
+            fingers.set(id, name);
+            held[name] = (held[name] || 0) + 1;
+            if (held[name] === 1) {
+                if (emu) emu.press(name, true);
+                if (navigator.vibrate) navigator.vibrate(8);
+            }
+        } else {
+            fingers.delete(id);
+        }
+        for (const b of document.querySelectorAll('.pad [data-key]')) {
+            b.classList.toggle('down', held[b.dataset.key] > 0);
+        }
+    }
+
+    // The d-pad is one touch area, so a thumb can slide from left to right
+    // without lifting
+    const dpad = document.getElementById('dpad');
+    function keyAt(el, ev) {
+        if (el !== dpad) return el.dataset.key;
+        const r = dpad.getBoundingClientRect();
+        return ev.clientX < r.left + r.width / 2 ? 'left' : 'right';
+    }
+
+    for (const el of [dpad, ...document.querySelectorAll('#pad-act [data-key]')]) {
+        el.addEventListener('pointerdown', ev => {
+            ev.preventDefault();
+            el.setPointerCapture(ev.pointerId);
+            setFinger(ev.pointerId, keyAt(el, ev));
+        });
+        el.addEventListener('pointermove', ev => {
+            if (el === dpad && fingers.has(ev.pointerId)) setFinger(ev.pointerId, keyAt(el, ev));
+        });
+        for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+            el.addEventListener(type, ev => setFinger(ev.pointerId, null));
+        }
+        el.addEventListener('contextmenu', ev => ev.preventDefault());
+        // Safari still zooms on a quick double tap even with touch-action:
+        // none, unless the touch events themselves are cancelled
+        for (const type of ['touchstart', 'touchend']) {
+            el.addEventListener(type, ev => { if (ev.cancelable) ev.preventDefault(); }, { passive: false });
+        }
+    }
+</script>
+</body>
+</html>

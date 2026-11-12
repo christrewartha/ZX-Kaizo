@@ -1,0 +1,94 @@
+; The C64 soundtrack. The Spectrum's song (data/music.txt) is a slow
+; intro; then a bar of drums picks up the pace into a fast main theme,
+; which loops. tools/build_c64.ps1 packs it into build/c64gen/song_data.c.
+;
+;   instrument <name> <wave> [key=value...]
+;       wave        tri, saw, pulse or noise
+;       ad, sr      SID attack/decay and sustain/release, in hex
+;       pw          pulse width, hex (000-FFF)
+;       pwm         pulse width change a frame (it sweeps up and down)
+;       arp         semitones to cycle through a frame each: a chord
+;       vibrato     wobble the pitch once a note has rung a while
+;       filter      through the low-pass filter (its cutoff sweeps slowly)
+;       fixed       a fixed pitch, hex SID frequency: for drums
+;       slide       added to the pitch every frame, signed
+;       wave2, at   switch to this wave once the note is 'at' frames old
+;       gate        let go after this many frames, rather than at the
+;                   next note
+;   drum <letter> <instrument>
+;       the letter in a voice line plays that instrument
+;   section <name> tick=<frames per step> [from=<file> bars=<n>] [loop]
+;       then A:, B:, C: lines of steps, as in data/music.txt. 'from'
+;       takes its first bars from another song file instead. Play goes
+;       through the sections in order, then back to the one marked loop.
+;
+; Steps: a note (C1 to B7, # or b), '-' holds, '.' rests, '|' is a bar
+; line, '@name' switches the voice's instrument (not a step), and drum
+; letters. Voice C gives way to sound effects while they play.
+
+; ---------------------------------------------------------- instruments
+
+; The intro, as on the AY: bass, electric piano, vibes
+instrument bass     pulse ad=09 sr=A9 pw=300 pwm=24 filter
+instrument epiano   pulse ad=0A sr=06 pw=600
+instrument vibes    tri   ad=0A sr=59 vibrato
+
+; The main theme
+instrument pump     pulse ad=06 sr=80 pw=400 pwm=32 filter
+instrument lead     pulse ad=0A sr=96 pw=800 pwm=12 vibrato
+instrument minor    pulse ad=05 sr=A8 pw=300 pwm=8 arp=0,3,7,12
+instrument major    pulse ad=05 sr=A8 pw=300 pwm=8 arp=0,4,7,12
+
+; Drums: a pitch that drops fast, and noise
+instrument kick     pulse ad=00 sr=C4 pw=800 fixed=1C00 slide=-1280 wave2=pulse at=1 gate=4
+instrument snare    noise ad=00 sr=A6 fixed=2800 slide=-256 gate=3
+instrument hat      noise ad=00 sr=81 fixed=C000 gate=1
+
+drum k kick
+drum s snare
+drum h hat
+
+; ----------------------------------------------------------------- song
+
+; The Spectrum's song, once round its eight bars: Dm9 | Dm9 | Bbmaj9 |
+; Bbmaj9 | Gm9 | Gm9 | A7sus4 | A7b9
+section intro tick=9 from=data/music.txt bars=8
+A: @bass
+B: @epiano
+C: @vibes
+
+; One bar at the new tempo (150 beats a minute), up through A major
+section build tick=5
+A: @pump k - - - k - - - k - k - s s s s
+B: @lead A4 - C#5 - E5 - G5 - A5 - C#6 - E6 - - -
+C: @major A3 - - - - - - - - - - - - - - -
+
+; Dm | Bb | C | A, four times round: the riff twice, then a soaring line,
+; then the riff with a drum fill to come round again
+section main tick=5 loop
+A: @pump k - D2 D3 s - D2 D3 k - D2 D3 s - D2 D3 | k - Bb1 Bb2 s - Bb1 Bb2 k - Bb1 Bb2 s - Bb1 Bb2
+A:       k - C2 C3 s - C2 C3 k - C2 C3 s - C2 C3 | k - A1 A2 s - A1 A2 k - A1 A2 s - A1 A2
+A:       k - D2 D3 s - D2 D3 k - D2 D3 s - D2 D3 | k - Bb1 Bb2 s - Bb1 Bb2 k - Bb1 Bb2 s - Bb1 Bb2
+A:       k - C2 C3 s - C2 C3 k - C2 C3 s - C2 C3 | k - A1 A2 s - A1 A2 k - A1 A2 s - A1 A2
+A:       k - D2 D3 s - D2 D3 k - D2 D3 s - D2 D3 | k - Bb1 Bb2 s - Bb1 Bb2 k - Bb1 Bb2 s - Bb1 Bb2
+A:       k - C2 C3 s - C2 C3 k - C2 C3 s - C2 C3 | k - A1 A2 s - A1 A2 k - A1 A2 s - A1 A2
+A:       k - D2 D3 s - D2 D3 k - D2 D3 s - D2 D3 | k - Bb1 Bb2 s - Bb1 Bb2 k - Bb1 Bb2 s - Bb1 Bb2
+A:       k - C2 C3 s - C2 C3 k - C2 C3 s - C2 C3 | k - A1 A2 s - A1 A2 s s s s h s s s
+
+B: @lead A4 . A4 . D5 . A4 . C5 . A4 . D5 . E5 F5 | F5 . D5 . Bb4 . D5 . F5 . D5 . G5 . F5 E5
+B:       E5 . C5 . G4 . C5 . E5 . C5 . G5 . E5 G5 | A5 . E5 . C#5 . E5 . A5 . G5 . F5 . E5 C#5
+B:       A4 . A4 . D5 . A4 . C5 . A4 . D5 . E5 F5 | F5 . D5 . Bb4 . D5 . F5 . D5 . G5 . F5 E5
+B:       E5 . C5 . G4 . C5 . E5 . C5 . G5 . E5 G5 | A5 . E5 . C#5 . E5 . A5 . C#6 . E6 . C#6 A5
+B:       D6 - - - C6 - A5 - - - F5 - G5 - A5 - | F5 - - - D5 - - - F5 - G5 - A5 - Bb5 -
+B:       C6 - - - Bb5 - A5 - G5 - - - E5 - - - | A5 - - - - - - - C#6 - - - E6 - - -
+B:       A4 . A4 . D5 . A4 . C5 . A4 . D5 . E5 F5 | F5 . D5 . Bb4 . D5 . F5 . D5 . G5 . F5 E5
+B:       E5 . C5 . G4 . C5 . E5 . C5 . G5 . E5 G5 | A5 . E5 . C#5 . E5 . A5 . C#6 . E6 . C#6 A5
+
+C: @minor D4 - - - - - - - - - - - - - - - | @major Bb3 - - - - - - - - - - - - - - -
+C: @major C4 - - - - - - - - - - - - - - - | @major A3 - - - - - - - - - - - - - - -
+C: @minor D4 - - - - - - - - - - - - - - - | @major Bb3 - - - - - - - - - - - - - - -
+C: @major C4 - - - - - - - - - - - - - - - | @major A3 - - - - - - - - - - - - - - -
+C: @minor D4 - - - - - - - - - - - - - - - | @major Bb3 - - - - - - - - - - - - - - -
+C: @major C4 - - - - - - - - - - - - - - - | @major A3 - - - - - - - - - - - - - - -
+C: @minor D4 - - - - - - - - - - - - - - - | @major Bb3 - - - - - - - - - - - - - - -
+C: @major C4 - - - - - - - - - - - - - - - | @major A3 - - - - - - - - - - - - - - -

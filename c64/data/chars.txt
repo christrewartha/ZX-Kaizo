@@ -1,0 +1,330 @@
+; Character graphics for Kaiz64o, the C64 version. tools/build_c64.ps1
+; packs them into build/c64gen/charset_data.c as CH_<NAME>, from code 96 up.
+; Codes 0-95 are the ROM font, copied in at start-up.
+;
+; [name] mc     8 rows of 4 double-width pixels. The screen is in
+;               multicolour mode, so per pixel:
+;                 '.' background ($D021)
+;                 'a' shared dark colour ($D022), set per level
+;                 'b' shared mid colour ($D023), set per level
+;                 'c' the cell's own colour (colour RAM, 0-7)
+; [name] hires  8 rows of 8 pixels, '#' in the cell's own colour
+
+; ----------------------------------------------------------------- tiles
+
+[brick] mc              ; two courses, lit along the top of each brick
+ccca
+bbba
+bbba
+aaaa
+cacc
+babb
+babb
+aaaa
+
+[brick_top] mc          ; brick with open air above: a worn, lit cap
+cccc
+cccc
+bbba
+aaaa
+cacc
+babb
+babb
+aaaa
+
+[block] mc              ; bevelled stone: lit top-left, shaded bottom-right
+cccb
+cbba
+cbba
+cbba
+cbba
+cbba
+cbba
+baaa
+
+[block_rivet] mc        ; the same with a stud, for variety
+cccb
+cbba
+cbba
+cbca
+cbaa
+cbba
+cbba
+baaa
+
+[plat] mc               ; one-way platform: a plank on brackets
+cccc
+bbbb
+babb
+aaaa
+.a.a
+..a.
+....
+....
+
+[spike_up] hires
+........
+........
+..#...#.
+..#...#.
+.##..##.
+.###.###
+########
+########
+
+[spike_down] hires
+########
+########
+.###.###
+.##..##.
+..#...#.
+..#...#.
+........
+........
+
+[exit] mc               ; chevrons pointing the way out; scrolled at run time
+c...
+bc..
+abc.
+.abc
+abc.
+bc..
+c...
+....
+
+; -------------------------------------------------- background (indoors)
+
+; Running bond: 16x8 stones, mortar lines only, in the dark shared colour.
+; Rows alternate which half of a stone starts on an even column.
+[bg_l] mc
+aaaa
+a...
+a...
+a...
+a...
+a...
+a...
+a...
+
+[bg_r] mc
+aaaa
+....
+....
+....
+....
+....
+....
+....
+
+[bg_l_crack] mc
+aaaa
+a...
+a...
+a...
+a..a
+a...
+a...
+a...
+
+[bg_r_crack] mc
+aaaa
+....
+.a..
+....
+....
+....
+....
+....
+
+[bg_l_moss] mc          ; a little growth in the mortar
+aaaa
+ac..
+a...
+a...
+a...
+a...
+a...
+a...
+
+; ------------------------------------------------- background (outdoors)
+
+[sky] mc
+....
+....
+....
+....
+....
+....
+....
+....
+
+[star_small] mc
+....
+....
+....
+.c..
+....
+....
+....
+....
+
+[star_big] mc
+....
+.c..
+ccc.
+.c..
+....
+....
+....
+....
+
+; ---------------------------------------------------------------- walls
+
+; The castle walls either side of the play area
+[wall] mc
+bbba
+bbba
+aaaa
+babb
+babb
+aaaa
+bbba
+aaaa
+
+[wall_edge_l] mc        ; wall's right edge, facing the play area
+bbac
+bbac
+aaac
+babc
+babc
+aaac
+bbac
+aaac
+
+[wall_edge_r] mc        ; wall's left edge
+cbba
+cbba
+caaa
+cabb
+cabb
+caaa
+cbba
+caaa
+
+[sconce] mc
+cccc
+.cc.
+.ab.
+.ab.
+.ab.
+.ab.
+aaaa
+....
+
+[flame_0] hires
+...#....
+...##...
+..###...
+..####..
+.##.##..
+.#..##..
+.##.#...
+..###...
+
+[flame_1] hires
+....#...
+...##...
+...###..
+..####..
+..##.##.
+..#..#..
+..##.#..
+...##...
+
+[flame_2] hires
+...#....
+..##....
+..###...
+.####...
+.##.##..
+.#...#..
+..#.##..
+...##...
+
+; ------------------------------------------------------------------ HUD
+
+; The top half is solid in the cell's colour (black), so the raster split
+; that swaps the shared colours for the HUD happens out of sight
+[ledge] mc
+cccc
+cccc
+cccc
+cccc
+bbbb
+abab
+aaaa
+....
+
+[cup] hires
+########
+#.####.#
+#.####.#
+.######.
+..####..
+...##...
+..####..
+.######.
+
+[skull] hires
+..####..
+.######.
+##.##.##
+##.##.##
+.######.
+..#..#..
+..####..
+........
+
+; ----------------------------------------------------------------- logo
+
+; Each logo cell is two pixels of a font letter, scaled up to a bar
+; shaded top to bottom; colour RAM washes over the 'c' rows
+[logo_l] mc
+cc..
+cc..
+cc..
+bb..
+bb..
+bb..
+aa..
+....
+
+[logo_r] mc
+..cc
+..cc
+..cc
+..bb
+..bb
+..bb
+..aa
+....
+
+[logo_lr] mc
+cccc
+cccc
+cccc
+bbbb
+bbbb
+bbbb
+aaaa
+....
+
+[solid] mc              ; all the cell's colour: for wipes
+cccc
+cccc
+cccc
+cccc
+cccc
+cccc
+cccc
+cccc

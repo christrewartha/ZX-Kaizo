@@ -4,6 +4,9 @@
 #   web/jsspeccy/    the JSSpeccy 3 emulator (GPL v3, see its COPYING)
 #   build/game.tap   the game, from the main build
 #   docs/*.png       loading screen and cover art
+#   web/c64.html     the C64 version's page, at c64/
+#   web/tiny8bit/    the Tiny Emulators C64 (see its LICENSE.txt)
+#   build/kaiz64o.*  the C64 version, from tools/build_c64.ps1
 #
 # Writes build/web/, a folder that any static web server can serve as is.
 #
@@ -15,6 +18,9 @@ $out = Join-Path $root 'build/web'
 
 $tap = Join-Path $root 'build/game.tap'
 if (-not (Test-Path $tap)) { throw "build/game.tap not found: build the game first" }
+$prg = Join-Path $root 'build/kaiz64o.prg'
+$d64 = Join-Path $root 'build/kaiz64o.d64'
+if (-not (Test-Path $d64)) { throw "build/kaiz64o.d64 not found: run tools/build_c64.ps1 first" }
 
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
 New-Item -ItemType Directory $out | Out-Null
@@ -84,4 +90,21 @@ $html = [IO.File]::ReadAllText((Join-Path $root 'web/index.html'))
 $html = $html.Replace('{{TAP}}', $tapName)
 [IO.File]::WriteAllText((Join-Path $out 'index.html'), $html)
 
-Write-Host "Wrote $out ($tapName)"
+# --------------------------------------------------------- C64 version
+
+# The same hash-in-the-name trick for the program and disk image. The
+# emulator frame loads the program; the page offers the disk image.
+$c64 = Join-Path $out 'c64'
+New-Item -ItemType Directory $c64 | Out-Null
+Copy-Item -Recurse (Join-Path $root 'web/tiny8bit') $c64
+Copy-Item (Join-Path $root 'docs/kaiz64o.png') $c64
+$hash = (Get-FileHash $prg -Algorithm SHA256).Hash.Substring(0, 12).ToLower()
+$prgName = "kaiz64o-$hash.prg"
+$d64Name = "kaiz64o-$hash.d64"
+Copy-Item $prg (Join-Path $c64 $prgName)
+Copy-Item $d64 (Join-Path $c64 $d64Name)
+$html = [IO.File]::ReadAllText((Join-Path $root 'web/c64.html'))
+$html = $html.Replace('{{PRG}}', $prgName).Replace('{{D64}}', $d64Name)
+[IO.File]::WriteAllText((Join-Path $c64 'index.html'), $html)
+
+Write-Host "Wrote $out ($tapName, c64/$prgName)"

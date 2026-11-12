@@ -1,0 +1,99 @@
+<!doctype html>
+<!-- The C64 emulator, filling this page, for web/c64.html to show in a
+     frame. The emulator takes its settings from this page's URL:
+       file=<prg>        loaded into memory once the C64 has started
+       input=RUN%0A      typed after that, to start it
+       joystick=digital_2  arrow keys and Space work joystick 2 -->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+        canvas {
+            display: block; width: 100%; height: 100%; outline: none;
+            image-rendering: pixelated;
+        }
+    </style>
+</head>
+<body>
+<canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+<script>
+    // ------------------------------------------------------------ sound
+
+    // As on the Spectrum page: the emulator makes its AudioContext as it
+    // starts. Safari leaves one made outside a tap suspended, so each
+    // context is kept, and resumed on the next tap, click or key here, or
+    // in the page around this frame (which calls resumeAudio()).
+    const NativeAudioContext = window.AudioContext || window.webkitAudioContext;
+    const audioContexts = [];
+    window.AudioContext = window.webkitAudioContext = class extends NativeAudioContext {
+        constructor(...args) {
+            super(...args);
+            audioContexts.push(this);
+        }
+    };
+    function resumeAudio() {
+        for (const ctx of audioContexts) if (ctx.state === 'suspended') ctx.resume();
+    }
+    for (const type of ['touchend', 'click', 'keydown']) {
+        document.addEventListener(type, resumeAudio, true);
+    }
+
+    // ------------------------------------------------------------- keys
+
+    // The emulator takes letter keys as typed characters, so holding one
+    // just repeats it: no good for running. Arrow keys and Space are held
+    // properly, as joystick 2. So the game's own keys are swapped for those
+    // here, before the emulator sees them, and the page's touch buttons
+    // send the same. N (skip level) is only ever tapped, so it goes through.
+    const KEYS = {
+        left:  { key: 'ArrowLeft',  code: 'ArrowLeft',  keyCode: 37 },
+        right: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 },
+        up:    { key: 'ArrowUp',    code: 'ArrowUp',    keyCode: 38 },
+        down:  { key: 'ArrowDown',  code: 'ArrowDown',  keyCode: 40 },
+        fire:  { key: ' ',          code: 'Space',      keyCode: 32 },
+        skip:  { key: 'n',          code: 'KeyN',       keyCode: 78, charCode: 110 },
+    };
+    const SWAP = { o: 'left', p: 'right', q: 'up', a: 'down', m: 'fire' };
+
+    function sendKey(type, name) {
+        const k = KEYS[name];
+        const ev = new KeyboardEvent(type, { key: k.key, code: k.code, bubbles: true, cancelable: true });
+        const charCode = type === 'keypress' ? (k.charCode || 0) : 0;
+        Object.defineProperty(ev, 'keyCode', { get: () => k.keyCode });
+        Object.defineProperty(ev, 'which', { get: () => k.keyCode });
+        Object.defineProperty(ev, 'charCode', { get: () => charCode });
+        document.getElementById('canvas').dispatchEvent(ev);
+    }
+    // For the touch buttons: press or release. A press of SKIP is typed.
+    function press(name, down) {
+        if (name === 'skip') {
+            if (down) { sendKey('keydown', 'skip'); sendKey('keypress', 'skip'); }
+            else sendKey('keyup', 'skip');
+            return;
+        }
+        sendKey(down ? 'keydown' : 'keyup', name);
+    }
+
+    // Registered before the emulator's own listeners, so they run first
+    for (const type of ['keydown', 'keypress', 'keyup']) {
+        window.addEventListener(type, ev => {
+            const name = ev.isTrusted && !ev.ctrlKey && !ev.altKey && !ev.metaKey && SWAP[ev.key.toLowerCase()];
+            if (!name) return;
+            ev.stopImmediatePropagation();
+            ev.preventDefault();
+            if (type !== 'keypress' && !ev.repeat) sendKey(type, name);
+        }, true);
+    }
+
+    var Module = {
+        preRun: [],
+        print: text => console.log(text),
+        printErr: text => console.error(text),
+        canvas: document.getElementById('canvas'),
+    };
+</script>
+<script async src="c64.js"></script>
+</body>
+</html>

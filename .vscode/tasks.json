@@ -23,10 +23,39 @@
       "problemMatcher": []
     },
     {
+      "label": "Build C64 PRG",
+      "type": "shell",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_c64.ps1",
+      "group": "build",
+      "problemMatcher": [
+        "$gcc",
+        {
+          "owner": "oscar64",
+          "fileLocation": "absolute",
+          "pattern": {
+            "regexp": "^(.*)\\((\\d+), (\\d+)\\) : (error|warning) \\d+: (.*)$",
+            "file": 1,
+            "line": 2,
+            "column": 3,
+            "severity": 4,
+            "message": 5
+          }
+        }
+      ]
+    },
+    {
+      "label": "Run in VICE",
+      "type": "shell",
+      "command": "x64sc -autostart build/kaiz64o.d64",
+      "dependsOn": ["Build C64 PRG"],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
       "label": "Build Web Page",
       "type": "shell",
       "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_web.ps1",
-      "dependsOn": ["Build Spectrum TAP"],
+      "dependsOn": ["Build Spectrum TAP", "Build C64 PRG"],
       "group": "build",
       "problemMatcher": []
     },
